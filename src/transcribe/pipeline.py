@@ -103,13 +103,17 @@ class AudioTranscriptionPipeline:
         whisper_model_size: str = "base",
         hf_token: Optional[str] = None,
         device: str = "auto",
+        compute_type: str = "default",
         enable_diarization: bool = True,
+        **kwargs: Any,
     ):
         self.device = device
         self.enable_diarization = enable_diarization
         self.transcriber = get_transcriber(
             model_name=whisper_model_size,
             device=device,
+            compute_type=compute_type,
+            **kwargs,
         )
         self.diarizer = (
             PyAnnoteDiarizer(hf_token=hf_token, device=device)
@@ -126,8 +130,11 @@ class AudioTranscriptionPipeline:
         max_speakers: Optional[int] = None,
         start_offset: float = 0.0,
         existing_segments: Optional[List[TranscriptSegment]] = None,
+        beam_size: int = 5,
+        vad_filter: bool = True,
         on_segment: Optional[Callable[[TranscriptSegment], None]] = None,
         on_progress: Optional[Callable[[dict], None]] = None,
+        **kwargs: Any,
     ) -> TranscriptionResult:
         """Execute full speech recognition and optional speaker diarization pipeline."""
         source_str = str(audio_path_or_url)
@@ -168,7 +175,10 @@ class AudioTranscriptionPipeline:
             raw_new_segments, lang, lang_prob = self.transcriber.transcribe(
                 temp_slice_wav,
                 language=language,
+                beam_size=beam_size,
+                vad_filter=vad_filter,
                 on_segment=seg_wrapper,
+                **kwargs,
             )
 
             all_raw = list(existing_segments or []) + raw_new_segments

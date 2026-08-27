@@ -30,7 +30,15 @@ def test_get_models_catalog_endpoint():
         assert m["implemented"] is True
         assert "family" in m
         assert "params" in m
+        assert "display_name" in m
+        assert "quantization_options" in m
+        assert isinstance(m["quantization_options"], list)
+        assert "is_cached" in m
+        assert isinstance(m["is_cached"], bool)
+        assert "capabilities" in m
+        assert isinstance(m["capabilities"], list)
 
     for m in data["cloud"]:
         assert m["is_local"] is False
         assert m["implemented"] is False
+        assert m["is_cached"] is False

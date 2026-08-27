@@ -16,8 +16,15 @@ from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Q
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from .downloader import is_url
-from .models import CLOUD_MODEL_CATALOG, MODEL_CATALOG, DiarizedSegment, TranscriptSegment, TranscriptionResult
+from .models import (
+    CLOUD_MODEL_CATALOG,
+    MODEL_CATALOG,
+    DiarizedSegment,
+    TranscriptSegment,
+    TranscriptionResult,
+    check_model_cached,
+    get_enriched_model_catalog,
+)
 from .pipeline import AudioTranscriptionPipeline
 from .youtube import is_youtube_url, fetch_youtube_transcript
 from .history import (
@@ -102,8 +109,8 @@ def check_token(tok: str = Depends(verify_token)):
 
 @app.get("/api/models")
 def get_models():
-    """Return catalog of all supported local and cloud ASR models with capabilities."""
-    local_models = [m.model_dump() for m in MODEL_CATALOG]
+    """Return catalog of all supported local and cloud ASR models with capabilities and cache state."""
+    local_models = [m.model_dump() for m in get_enriched_model_catalog()]
     cloud_models = [m.model_dump() for m in CLOUD_MODEL_CATALOG]
     return JSONResponse(content={
         "local": local_models,
@@ -293,15 +300,32 @@ def _run_pipeline_worker(
     t0: float,
     msg_queue: queue.Queue,
     done_flag: threading.Event,
+    compute_type: str = "default",
+    beam_size: int = 5,
+    vad_filter: bool = True,
+    use_itn: bool = True,
+    chunk_length_s: float = 30.0,
+    target_lang: Optional[str] = None,
 ) -> None:
     """Run transcription worker in background thread with checkpointing."""
     try:
         if _handle_youtube_stream(source_target, job_id, t0, msg_queue):
             return
 
+        if not check_model_cached(model):
+            msg_queue.put({
+                "type": "progress",
+                "data": {
+                    "stage": "downloading",
+                    "percent": 0.0,
+                    "message": f"📥 Downloading model '{model}' to local server cache...",
+                },
+            })
+
         pipeline = AudioTranscriptionPipeline(
             whisper_model_size=model,
             device=DEFAULT_DEVICE,
+            compute_type=compute_type,
             enable_diarization=diarize,
         )
         current_res_holder = {
@@ -333,6 +357,11 @@ def _run_pipeline_worker(
             num_speakers=num_speakers,
             start_offset=start_offset,
             existing_segments=existing_segs,
+            beam_size=beam_size,
+            vad_filter=vad_filter,
+            use_itn=use_itn,
+            chunk_length_s=chunk_length_s,
+            target_lang=target_lang,
             on_progress=on_prog,
         )
         res_data = res.model_dump()
@@ -364,6 +393,12 @@ async def _sse_stream_generator(
     start_offset: float,
     existing_segs: List[TranscriptSegment],
     t0: float,
+    compute_type: str = "default",
+    beam_size: int = 5,
+    vad_filter: bool = True,
+    use_itn: bool = True,
+    chunk_length_s: float = 30.0,
+    target_lang: Optional[str] = None,
 ):
     """Yield SSE formatted messages as background transcription worker progresses."""
     msg_queue: queue.Queue = queue.Queue()
@@ -390,6 +425,12 @@ async def _sse_stream_generator(
             t0,
             msg_queue,
             done_flag,
+            compute_type,
+            beam_size,
+            vad_filter,
+            use_itn,
+            chunk_length_s,
+            target_lang,
         ),
         daemon=True,
     )
@@ -414,6 +455,12 @@ async def transcribe_audio_stream(
     num_speakers: Optional[int] = Form(None),
     resume_job_id: Optional[str] = Form(None),
     force: bool = Form(False),
+    compute_type: str = Form("default"),
+    beam_size: int = Form(5),
+    vad_filter: bool = Form(True),
+    use_itn: bool = Form(True),
+    chunk_length_s: float = Form(30.0),
+    target_lang: Optional[str] = Form(None),
 ):
     """Real-time SSE stream protected by token verification."""
     upload_dir = Path("data/uploads")
@@ -451,6 +498,12 @@ async def transcribe_audio_stream(
             start_offset,
             existing_segs,
             t0,
+            compute_type,
+            beam_size,
+            vad_filter,
+            use_itn,
+            chunk_length_s,
+            target_lang,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},

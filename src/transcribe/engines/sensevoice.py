@@ -18,16 +18,18 @@ def _run_sensevoice_model(
     use_itn: bool,
     kwargs: Dict[str, Any],
 ) -> str:
-    """Execute model.generate and safely extract raw transcription text."""
+    """Execute funasr AutoModel inference safely."""
     if model is None or not hasattr(model, "generate"):
         return f"<|{target_lang if target_lang != 'auto' else 'en'}|><|NEUTRAL|><|Speech|>"
 
+    call_kwargs = dict(kwargs)
+    effective_itn = call_kwargs.pop("use_itn", use_itn)
     res = model.generate(
         input=audio_path,
         language=target_lang,
-        use_itn=use_itn,
+        use_itn=effective_itn,
         batch_size_s=60,
-        **kwargs,
+        **call_kwargs,
     )
     if isinstance(res, list) and len(res) > 0 and isinstance(res[0], dict):
         return res[0].get("text", "")

@@ -45,63 +45,81 @@ def clean_vtt(vtt_text: str) -> str:
     _, full_text = parse_vtt_content(vtt_text)
     return full_text
 
+
+def _extract_subtitles(base: str) -> str:
+    """Find and parse subtitles from local subtitle files."""
+    for ext in [".en.vtt", ".en-orig.vtt", ".vtt", ".srt"]:
+        sub_files = glob.glob(str(DATA_DIR / f"{base}*{ext}"))
+        if sub_files:
+            try:
+                with open(sub_files[0], "r", encoding="utf-8") as sf:
+                    return clean_vtt(sf.read())
+            except Exception:
+                pass
+    return ""
+
+
+def _match_keywords(
+    full_content: str,
+    info: dict,
+    webpage_url: str,
+    uploader: str,
+    title: str,
+    duration: int,
+    model_mentions: dict,
+) -> dict:
+    """Identify matching voice AI keyword categories."""
+    detected = defaultdict(list)
+    for cat, kw_list in KEYWORDS.items():
+        for kw in kw_list:
+            if kw in full_content:
+                detected[cat].append(kw)
+                model_mentions[kw].append({
+                    "video_id": info.get("id"),
+                    "title": title,
+                    "url": webpage_url,
+                    "uploader": uploader,
+                    "duration": duration,
+                })
+    return dict(detected)
+
+
 def analyze_transcripts():
     info_files = sorted(glob.glob(str(DATA_DIR / "*.info.json")))
     print(f"Found {len(info_files)} metadata files in {DATA_DIR}")
-    
+
     videos = []
     model_mentions = defaultdict(list)
-    
+
     for info_path in info_files:
         p = Path(info_path)
         base = p.stem.replace(".info", "")
         with open(p, "r", encoding="utf-8") as f:
             info = json.load(f)
-            
+
         title = info.get("title", "")
         desc = info.get("description", "")
         tags = info.get("tags", [])
         webpage_url = info.get("webpage_url", f"https://www.youtube.com/watch?v={info.get('id')}")
         duration = info.get("duration", 0)
         uploader = info.get("uploader", "")
-        
-        # Check subtitles
-        subs_text = ""
-        for ext in [".en.vtt", ".en-orig.vtt", ".vtt", ".srt"]:
-            sub_files = glob.glob(str(DATA_DIR / f"{base}*{ext}"))
-            if sub_files:
-                try:
-                    with open(sub_files[0], "r", encoding="utf-8") as sf:
-                        subs_text = clean_vtt(sf.read())
-                        break
-                except Exception:
-                    pass
-                    
+
+        subs_text = _extract_subtitles(base)
         full_content = f"{title}\n{desc}\n{' '.join(tags)}\n{subs_text}".lower()
-        
-        detected_categories = defaultdict(list)
-        for cat, kw_list in KEYWORDS.items():
-            for kw in kw_list:
-                if kw in full_content:
-                    detected_categories[cat].append(kw)
-                    model_mentions[kw].append({
-                        "video_id": info.get("id"),
-                        "title": title,
-                        "url": webpage_url,
-                        "uploader": uploader,
-                        "duration": duration
-                    })
-                    
+        detected_categories = _match_keywords(
+            full_content, info, webpage_url, uploader, title, duration, model_mentions
+        )
+
         videos.append({
             "id": info.get("id"),
             "title": title,
             "url": webpage_url,
             "uploader": uploader,
             "duration": duration,
-            "categories": dict(detected_categories),
+            "categories": detected_categories,
             "has_transcript": bool(subs_text),
             "transcript_len": len(subs_text.split()),
-            "description_snippet": desc[:300] if desc else ""
+            "description_snippet": desc[:300] if desc else "",
         })
 
     # Summary Report

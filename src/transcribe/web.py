@@ -51,39 +51,43 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <div class="md:col-span-1 space-y-6">
         <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm">
           <h2 class="font-semibold text-slate-800 dark:text-slate-200 text-sm tracking-wider uppercase">Configuration</h2>
-          <div>
-            <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">ASR Model & Family</label>
-            <select id="model-select" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-medium">
-              <optgroup label="🚀 Faster-Whisper (OpenAI / CTranslate2)">
-                <option value="tiny">Whisper Tiny (39M • Ultra-Fast)</option>
-                <option value="base" selected>Whisper Base (74M • Standard)</option>
-                <option value="small">Whisper Small (244M • Balanced)</option>
-                <option value="medium">Whisper Medium (769M • High Accuracy)</option>
-                <option value="turbo">Whisper Turbo (809M • High Speed & Quality)</option>
-                <option value="large-v3">Whisper Large-v3 (1550M • Best Quality)</option>
-                <option value="distil-small.en">Distil-Whisper Small (English Fast)</option>
-                <option value="distil-medium.en">Distil-Whisper Medium (English Fast)</option>
-              </optgroup>
-              <optgroup label="🇮🇩 Indonesian Regional & Dialects (CTC)">
-                <option value="indonesian-wav2vec2-regional">Wav2Vec2 Regional (ID / JV / SU • Native)</option>
-                <option value="indonesian-wav2vec2-large-xlsr">Wav2Vec2 Large XLSR (53-Lang Indonesian)</option>
-              </optgroup>
-              <optgroup label="🎭 Alibaba SenseVoice (Rich Speech Recognition)">
-                <option value="sensevoice-small">SenseVoice-Small (50x RTF • SER Emotion & AED Events)</option>
-              </optgroup>
-              <optgroup label="⚡ UsefulSensors Moonshine (Edge ONNX)">
-                <option value="moonshine-tiny">Moonshine Tiny (27M • Zero-Overhead Edge)</option>
-                <option value="moonshine-base">Moonshine Base (61M • Accurate Edge)</option>
-              </optgroup>
-              <optgroup label="🌐 Meta MMS (Omnilingual CTC)">
-                <option value="meta-omnilingual-asr">Meta MMS-1B (100+ World Languages)</option>
-              </optgroup>
-            </select>
-            <div id="model-badges" class="flex flex-wrap items-center gap-1.5 mt-2 text-[10px]">
-              <span class="px-1.5 py-0.5 rounded font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">● Local</span>
-              <span class="px-1.5 py-0.5 rounded font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">GPU/CPU</span>
-              <span class="px-1.5 py-0.5 rounded font-medium bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20" id="badge-params">74M params</span>
+          <!-- Cascaded Model Selectors -->
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Architecture / Family</label>
+              <select id="family-select" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-semibold"></select>
             </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Variant / Size</label>
+                <select id="variant-select" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"></select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Compute Type</label>
+                <select id="compute-type-select" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-medium">
+                  <option value="default" selected>Auto / Default</option>
+                  <option value="float16">FP16 (Fast GPU)</option>
+                  <option value="int8">INT8 (Low VRAM)</option>
+                  <option value="int8_float16">INT8_FP16 (Hybrid)</option>
+                </select>
+              </div>
+            </div>
+
+            <input type="hidden" id="model-select" value="base" />
+
+            <!-- Real-time Badges -->
+            <div id="model-badges" class="flex flex-wrap items-center gap-1 mt-1 text-[10px]">
+              <span id="badge-cache" class="px-1.5 py-0.5 rounded font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">● Local</span>
+              <span id="badge-params" class="px-1.5 py-0.5 rounded font-medium bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">74M params</span>
+              <span id="badge-vram" class="px-1.5 py-0.5 rounded font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">~1 GB VRAM</span>
+              <span id="badge-speed" class="px-1.5 py-0.5 rounded font-medium bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">~16x RTF</span>
+            </div>
+          </div>
+
+          <!-- Dynamic Adaptive Knobs Panel -->
+          <div id="adaptive-knobs" class="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/80 rounded-xl space-y-2 text-xs">
+            <!-- Dynamically mounted based on active model family -->
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Language</label>
@@ -357,11 +361,15 @@ HTML_PAGE = r"""<!DOCTYPE html>
     const metaLabel = document.getElementById('meta-label'), exportActions = document.getElementById('export-actions'), streamBadge = document.getElementById('stream-badge'), btnResume = document.getElementById('btn-resume-action');
     const historyModal = document.getElementById('history-modal'), historyList = document.getElementById('history-list'), exportStyle = document.getElementById('export-style');
     const compareBanner = document.getElementById('compare-banner'), modelSelect = document.getElementById('model-select');
+    const familySelect = document.getElementById('family-select'), variantSelect = document.getElementById('variant-select'), computeTypeSelect = document.getElementById('compute-type-select');
+    const adaptiveKnobs = document.getElementById('adaptive-knobs'), quickModelButtons = document.getElementById('quick-model-buttons');
+    const badgeCache = document.getElementById('badge-cache'), badgeParams = document.getElementById('badge-params'), badgeVram = document.getElementById('badge-vram'), badgeSpeed = document.getElementById('badge-speed');
     const compareModal = document.getElementById('compare-modal'), compareSourceSelect = document.getElementById('compare-source-select'), compareRunA = document.getElementById('compare-run-a'), compareRunB = document.getElementById('compare-run-b');
     const progressBox = document.getElementById('progress-box'), progressStageText = document.getElementById('progress-stage-text'), progressStatus = document.getElementById('progress-status'), progressBar = document.getElementById('progress-bar'), spinner = document.getElementById('spinner');
     const renameBar = document.getElementById('speaker-rename-bar'), speakerInputs = document.getElementById('speaker-inputs'), speakerCount = document.getElementById('speaker-count');
     const tokenModal = document.getElementById('token-modal'), tokenInput = document.getElementById('token-input'), tokenLabel = document.getElementById('token-label');
     const toast = document.getElementById('toast'), toastMsg = document.getElementById('toast-msg');
+    let allModelsCatalog = [];
 
     function showToast(msg) { toastMsg.textContent = msg; toast.classList.remove('translate-y-[-100px]', 'opacity-0'); setTimeout(() => toast.classList.add('translate-y-[-100px]', 'opacity-0'), 2500); }
 
@@ -387,6 +395,182 @@ HTML_PAGE = r"""<!DOCTYPE html>
     };
     updateTokenUI();
     if (appToken) loadHistory(true);
+
+    async function loadModelCatalog() {
+      try {
+        const res = await fetch('/api/models');
+        if (res.ok) {
+          const data = await res.json();
+          allModelsCatalog = [...(data.local || []), ...(data.cloud || [])];
+          renderFamilyOptions();
+        }
+      } catch (e) {
+        console.error('Failed to load model catalog:', e);
+      }
+    }
+
+    function renderFamilyOptions() {
+      const families = [...new Set(allModelsCatalog.map(m => m.family))];
+      familySelect.innerHTML = '';
+      families.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f;
+        opt.textContent = f;
+        if (f.includes('Faster-Whisper')) opt.selected = true;
+        familySelect.appendChild(opt);
+      });
+      onFamilySelectChange();
+    }
+
+    function onFamilySelectChange() {
+      const selectedFam = familySelect.value;
+      const variants = allModelsCatalog.filter(m => m.family === selectedFam);
+      variantSelect.innerHTML = '';
+      variants.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.name;
+        opt.textContent = `${m.display_name || m.name} (${m.params})`;
+        if (m.name === 'base' || m.name === 'base.en' || variants.length === 1) opt.selected = true;
+        variantSelect.appendChild(opt);
+      });
+      onVariantSelectChange();
+      updateQuickButtons(selectedFam);
+    }
+
+    function onVariantSelectChange() {
+      const modelName = variantSelect.value;
+      const modelObj = allModelsCatalog.find(m => m.name === modelName) || { name: modelName, params: '74M', vram: '~1 GB', speed_factor: '~16x', is_cached: true, capabilities: ['local', 'gpu'] };
+      
+      modelSelect.value = modelName;
+      btnTranscribe.textContent = `Start Transcription (${modelName.toUpperCase()})`;
+
+      const quantOptions = modelObj.quantization_options || ['float16', 'int8', 'int8_float16'];
+      computeTypeSelect.innerHTML = '<option value="default" selected>Auto / Default</option>';
+      quantOptions.forEach(q => {
+        const opt = document.createElement('option');
+        opt.value = q;
+        opt.textContent = q.toUpperCase();
+        computeTypeSelect.appendChild(opt);
+      });
+
+      badgeParams.textContent = `${modelObj.params || '--'} params`;
+      badgeVram.textContent = `${modelObj.vram || '--'} VRAM`;
+      badgeSpeed.textContent = `${modelObj.speed_factor || '--'} RTF`;
+      if (modelObj.is_cached) {
+        badgeCache.textContent = '● Cached';
+        badgeCache.className = 'px-1.5 py-0.5 rounded font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20';
+      } else {
+        badgeCache.textContent = '📥 Auto-Download';
+        badgeCache.className = 'px-1.5 py-0.5 rounded font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20';
+      }
+
+      renderAdaptiveKnobs(modelObj);
+    }
+
+    function renderAdaptiveKnobs(modelObj) {
+      const fam = modelObj.family || '';
+      adaptiveKnobs.innerHTML = '';
+
+      if (fam.includes('Whisper')) {
+        adaptiveKnobs.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="font-medium text-slate-700 dark:text-slate-300">Beam Search Size</span>
+            <select id="knob-beam-size" class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-0.5 text-xs text-slate-800 dark:text-slate-200">
+              <option value="1">1 (Greedy / Fastest)</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="5" selected>5 (Standard)</option>
+              <option value="8">8 (High Accuracy)</option>
+            </select>
+          </div>
+          <div class="flex items-center justify-between pt-1 border-t border-slate-200 dark:border-slate-800/80">
+            <span class="font-medium text-slate-700 dark:text-slate-300">Silero VAD Filter</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="knob-vad-filter" checked class="sr-only peer">
+              <div class="w-7 h-4 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+          </div>`;
+      } else if (fam.includes('SenseVoice')) {
+        adaptiveKnobs.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="font-medium text-slate-700 dark:text-slate-300">Inverse Text Norm (ITN)</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="knob-use-itn" checked class="sr-only peer">
+              <div class="w-7 h-4 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+          </div>
+          <div class="flex items-center gap-1.5 pt-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+            <span>🎭 Emotion (SER) & Audio Events (AED) Enabled</span>
+          </div>`;
+      } else if (fam.includes('MMS')) {
+        adaptiveKnobs.innerHTML = `
+          <div>
+            <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">MMS Target Adapter Code</label>
+            <input type="text" id="knob-mms-lang" placeholder="e.g. ind, eng, fra, spa, jav" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-800 dark:text-slate-200">
+          </div>`;
+      } else if (fam.includes('CTC') || fam.includes('Wav2Vec2')) {
+        adaptiveKnobs.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="font-medium text-slate-700 dark:text-slate-300">Chunk Window Size</span>
+            <select id="knob-chunk-size" class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-0.5 text-xs text-slate-800 dark:text-slate-200">
+              <option value="15.0">15s (Low Latency)</option>
+              <option value="30.0" selected>30s (Default)</option>
+              <option value="45.0">45s</option>
+              <option value="60.0">60s</option>
+            </select>
+          </div>`;
+      } else if (fam.includes('Moonshine')) {
+        adaptiveKnobs.innerHTML = `
+          <div class="flex items-center justify-between text-indigo-600 dark:text-indigo-400 font-medium">
+            <span>⚡ Zero-Overhead ONNX Runtime</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20">Edge Optimized</span>
+          </div>`;
+      } else {
+        adaptiveKnobs.innerHTML = `<span class="text-slate-400">Standard inference settings active.</span>`;
+      }
+    }
+
+    function updateQuickButtons(activeFam) {
+      const familyModels = allModelsCatalog.filter(m => m.family === activeFam && m.is_local);
+      const topOtherModels = allModelsCatalog.filter(m => m.family !== activeFam && m.is_local && ['sensevoice-small', 'turbo', 'moonshine-base', 'indonesian-wav2vec2-regional', 'meta-omnilingual-asr'].includes(m.name)).slice(0, 2);
+      
+      quickModelButtons.innerHTML = '';
+      familyModels.forEach(m => {
+        const btn = document.createElement('button');
+        btn.className = 'px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-indigo-50 hover:border-indigo-400 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-400 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold shadow-sm transition-all';
+        btn.textContent = m.display_name ? m.display_name.replace('Whisper ', '').replace(' (ID)', '') : m.name;
+        btn.onclick = () => selectAndRunModel(m.name, m.family);
+        quickModelButtons.appendChild(btn);
+      });
+
+      topOtherModels.forEach(m => {
+        const btn = document.createElement('button');
+        btn.className = 'px-2.5 py-1 bg-slate-100 dark:bg-slate-900 hover:bg-purple-50 hover:border-purple-400 dark:hover:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold shadow-sm transition-all';
+        btn.textContent = `⚡ ${m.display_name || m.name}`;
+        btn.onclick = () => selectAndRunModel(m.name, m.family);
+        quickModelButtons.appendChild(btn);
+      });
+
+      const cmpBtn = document.createElement('button');
+      cmpBtn.className = 'px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold shadow-sm transition-all';
+      cmpBtn.textContent = '⚖️ Compare Runs';
+      cmpBtn.onclick = () => openCompareWithSource(encodeURIComponent(currentSourceName));
+      quickModelButtons.appendChild(cmpBtn);
+    }
+
+    function selectAndRunModel(modelName, modelFamily) {
+      if (modelFamily && familySelect.value !== modelFamily) {
+        familySelect.value = modelFamily;
+        onFamilySelectChange();
+      }
+      variantSelect.value = modelName;
+      onVariantSelectChange();
+      executeStream(false, modelName);
+    }
+
+    familySelect.onchange = onFamilySelectChange;
+    variantSelect.onchange = onVariantSelectChange;
+    loadModelCatalog();
 
     function authHeaders(h = {}) { return appToken ? { ...h, 'X-API-Token': appToken } : h; }
 
@@ -506,8 +690,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
     async function executeStream(isResume = false, forcedModel = null) {
       if (!appToken) { tokenModal.classList.remove('hidden'); showToast('Please enter access token'); return; }
-      const chosenModel = forcedModel || modelSelect.value;
-      modelSelect.value = chosenModel;
+      const chosenModel = forcedModel || (variantSelect && variantSelect.value ? variantSelect.value : (modelSelect ? modelSelect.value : 'base'));
+      if (modelSelect) modelSelect.value = chosenModel;
       const isForce = document.getElementById('chk-force') && document.getElementById('chk-force').checked;
       const formData = new FormData();
       formData.append('model', chosenModel);
@@ -515,6 +699,18 @@ HTML_PAGE = r"""<!DOCTYPE html>
       formData.append('diarize', 'true');
       formData.append('token', appToken);
       if (isForce) formData.append('force', 'true');
+
+      if (computeTypeSelect) formData.append('compute_type', computeTypeSelect.value);
+      const beamInput = document.getElementById('knob-beam-size');
+      if (beamInput) formData.append('beam_size', beamInput.value);
+      const vadInput = document.getElementById('knob-vad-filter');
+      if (vadInput) formData.append('vad_filter', vadInput.checked ? 'true' : 'false');
+      const itnInput = document.getElementById('knob-use-itn');
+      if (itnInput) formData.append('use_itn', itnInput.checked ? 'true' : 'false');
+      const chunkInput = document.getElementById('knob-chunk-size');
+      if (chunkInput) formData.append('chunk_length_s', chunkInput.value);
+      const mmsLangInput = document.getElementById('knob-mms-lang');
+      if (mmsLangInput && mmsLangInput.value.trim()) formData.append('target_lang', mmsLangInput.value.trim());
 
       if (isResume && currentJobId) {
         formData.append('resume_job_id', currentJobId);
@@ -565,10 +761,14 @@ HTML_PAGE = r"""<!DOCTYPE html>
               if (msg.type === 'progress') {
                 const p = msg.data;
                 if (p.stage === 'downloading') {
-                  const pct = p.percent ? p.percent.toFixed(1) : '0';
+                  const pct = p.percent ? p.percent.toFixed(1) : '25';
                   progressBar.style.width = `${pct}%`;
-                  const dlMb = (p.downloaded / 1048576).toFixed(1), totMb = p.total ? (p.total / 1048576).toFixed(1) + ' MB' : 'Unknown';
-                  progressStageText.textContent = `⬇️ Downloading Audio (${dlMb} MB / ${totMb})`;
+                  if (p.downloaded) {
+                    const dlMb = (p.downloaded / 1048576).toFixed(1), totMb = p.total ? (p.total / 1048576).toFixed(1) + ' MB' : 'Unknown';
+                    progressStageText.textContent = `⬇️ Downloading Audio (${dlMb} MB / ${totMb})`;
+                  } else {
+                    progressStageText.textContent = p.message || '📥 Downloading Model to Local Server Cache...';
+                  }
                 } else if (p.stage === 'audio_prep') {
                   progressStageText.textContent = p.message || '⚙️ Normalizing Audio (16kHz WAV)...';
                   progressBar.style.width = '30%';
@@ -608,7 +808,13 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 btnTranscribe.textContent = `Start Transcription (${chosenModel.toUpperCase()})`;
                 renderSpeakerRenameBar(); updateVirtualWindow();
                 loadHistory(true);
-              } else if (msg.type === 'error') { alert('Error: ' + msg.error); }
+              } else if (msg.type === 'error') {
+                if (timerInterval) clearInterval(timerInterval);
+                progressStageText.textContent = '❌ Error: ' + msg.error;
+                progressBar.style.width = '100%';
+                spinner.classList.add('hidden');
+                showToast('Error: ' + msg.error);
+              }
             }
           }
         }
