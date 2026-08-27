@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+env/
+venv/
+ENV/
+
+# Output & Temp data
+output/
+data/raw/
+data/processed/
+screenshots/
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+
+# Secrets & Local Config
+.secrets
+.env.local
+.env.*.local
+*.key
+*.pem
+hf_token
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Antigravity & IDE
+.vscode/
+.idea/
+.DS_Store
+.gitmodules
+uv.lock
+data/*
+*.typed
+*.pyd
+.env
+
+# Submodules (read-only, untracked)
+autonomous-coding-agents/
+cordis/
+stt-arena-demo-2026/
+stt-arena-design/
+tests/each-model/*
