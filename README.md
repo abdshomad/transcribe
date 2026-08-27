@@ -16,7 +16,7 @@ A high-performance, offline-first speech recognition and speaker diarization eng
 - **👥 Speaker Diarization**: Turn-by-turn speaker identification using PyAnnote 3.1 (with clustering fallback), allowing exact speaker attribution.
 - **⚖️ Multi-Model Benchmarks & Comparison**:
   - Model Catalog with **33 registered ASR architectures** spanning standard Whisper, English `.en`, Distil-Whisper, Turbo, and Indonesian fine-tunes (`cahya-whisper-*-id-ct2`).
-  - Automated benchmark suite ([`scripts/benchmark_all_models.py`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/scripts/benchmark_all_models.py)) evaluating 19 model architectures across 3 quantization modes (`float16`, `int8_float16`, `int8`).
+  - Automated benchmark suite ([`scripts/benchmark_all_models.py`](./scripts/benchmark_all_models.py)) evaluating 19 model architectures across 3 quantization modes (`float16`, `int8_float16`, `int8`).
   - Store independent runs across different Whisper model sizes for the same audio source in SQLite.
   - Side-by-side split view with **word-diff highlighting** (additions, deletions, and substitutions).
   - Quantitative benchmark cards: **Similarity %**, **Processing Speed / RTF**, **Word Count Delta**, and **Speaker Counts**.

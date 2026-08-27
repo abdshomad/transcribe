@@ -19,7 +19,7 @@ An automated extraction and transcript analysis was performed across all 101 vid
 
 ## 2. Current Repository Baseline
 
-The current repository ([`src/transcribe/models.py`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/models.py)) indexes **17 models**:
+The current repository ([`src/transcribe/models.py`](../../src/transcribe/models.py)) indexes **17 models**:
 
 | Category | Indexed Models in Repo |
 | :--- | :--- |

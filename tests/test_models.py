@@ -4,6 +4,8 @@ from transcribe.models import (
     SpeakerSegment,
     DiarizedSegment,
     TranscriptionResult,
+    MODEL_CATALOG,
+    CLOUD_MODEL_CATALOG,
 )
 
 
@@ -30,3 +32,16 @@ def test_models_creation():
     )
     assert "SPEAKER_01" in result.full_text
     assert "Hello world" in result.full_text
+
+
+def test_model_catalogs_and_status_flags():
+    """Verify local catalog has implemented=True and cloud catalog has implemented=False."""
+    assert len(MODEL_CATALOG) > 0
+    assert all(m.implemented is True and m.is_local is True for m in MODEL_CATALOG)
+
+    assert len(CLOUD_MODEL_CATALOG) > 0
+    assert all(m.implemented is False and m.is_local is False for m in CLOUD_MODEL_CATALOG)
+    cloud_names = [m.name for m in CLOUD_MODEL_CATALOG]
+    assert "openai-whisper-api" in cloud_names
+    assert "azure-speech-to-text" in cloud_names
+    assert "groq-whisper-cloud" in cloud_names

@@ -73,6 +73,8 @@ def align_transcription_and_diarization(
                 end=seg.end,
                 text=seg.text,
                 words=seg.words,
+                emotion=seg.emotion,
+                events=seg.events,
             )
             for seg in transcript_segments
         ]
@@ -119,6 +121,8 @@ def align_transcription_and_diarization(
                 end=seg.end,
                 text=seg.text,
                 words=annotated_words,
+                emotion=seg.emotion,
+                events=seg.events,
             )
         )
 

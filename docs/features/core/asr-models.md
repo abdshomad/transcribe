@@ -19,6 +19,6 @@ The system maintains an exhaustive metadata catalog of **33 ASR architectures** 
   - `proklamasi.wav` (Indonesian speech, 48.52s): `cahya-whisper-small-id` achieved **44.4% WER** (ranking #1 overall in Indonesian accuracy, outperforming OpenAI `large-v3` at 47.2%). Speeds reached **135.5x RTF** (`cahya-whisper-tiny-id` float16).
   - `jfk.wav` (English speech, 11.00s): Speeds up to **73.9x RTF** (`distil-small.en` int8_float16) and **9.5% WER** across Whisper tiers.
 - **Detailed Reports**:
-  - [`docs/features/core/all-models-benchmark-proklamasi.md`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/docs/features/core/all-models-benchmark-proklamasi.md)
-  - [`docs/features/core/all-models-benchmark-jfk.md`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/docs/features/core/all-models-benchmark-jfk.md)
+  - [`./all-models-benchmark-proklamasi.md`](./all-models-benchmark-proklamasi.md)
+  - [`./all-models-benchmark-jfk.md`](./all-models-benchmark-jfk.md)
 

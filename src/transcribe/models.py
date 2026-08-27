@@ -24,6 +24,8 @@ class TranscriptSegment(BaseModel):
     words: List[WordInfo] = Field(default_factory=list)
     avg_logprob: Optional[float] = None
     no_speech_prob: Optional[float] = None
+    emotion: Optional[str] = None
+    events: List[str] = Field(default_factory=list)
 
 
 class SpeakerSegment(BaseModel):
@@ -43,6 +45,8 @@ class DiarizedSegment(BaseModel):
     end: float
     text: str
     words: List[WordInfo] = Field(default_factory=list)
+    emotion: Optional[str] = None
+    events: List[str] = Field(default_factory=list)
 
 
 class TranscriptionResult(BaseModel):
@@ -56,11 +60,16 @@ class TranscriptionResult(BaseModel):
 
     @property
     def full_text(self) -> str:
-        """Formatted full text with speaker tags."""
-        return "\n".join(
-            f"[{seg.speaker}] ({seg.start:.2f}s - {seg.end:.2f}s): {seg.text.strip()}"
-            for seg in self.segments
-        )
+        """Formatted full text with speaker tags and emotion/event annotations."""
+        lines = []
+        for seg in self.segments:
+            badge = ""
+            if seg.emotion and seg.emotion != "NEUTRAL":
+                badge += f" [{seg.emotion}]"
+            if seg.events:
+                badge += f" [{' '.join(seg.events)}]"
+            lines.append(f"[{seg.speaker}]{badge} ({seg.start:.2f}s - {seg.end:.2f}s): {seg.text.strip()}")
+        return "\n".join(lines)
 
 
 class ASRModelInfo(BaseModel):
@@ -73,6 +82,8 @@ class ASRModelInfo(BaseModel):
     speed_factor: str
     languages: str
     description: str
+    implemented: bool = True
+    is_local: bool = True
 
 
 MODEL_CATALOG: List[ASRModelInfo] = [
@@ -101,26 +112,24 @@ MODEL_CATALOG: List[ASRModelInfo] = [
     ASRModelInfo(name="cahya-faster-whisper-medium-id", family="Indonesian Fine-tune", params="769M", vram="~5 GB", speed_factor="~3x", languages="Indonesian (id)", description="CTranslate2 converted Indonesian checkpoint for faster inference"),
     ASRModelInfo(name="indonesian-wav2vec2-regional", family="Indonesian Wav2Vec2", params="317M", vram="~2 GB", speed_factor="~15x", languages="ID / JV / SU", description="indonesian-nlp/wav2vec2-indonesian-javanese-sundanese acoustic CTC"),
     ASRModelInfo(name="indonesian-wav2vec2-large-xlsr", family="Indonesian Wav2Vec2", params="317M", vram="~2 GB", speed_factor="~15x", languages="Indonesian (id)", description="indonesian-nlp/wav2vec2-large-xlsr-indonesian acoustic CTC"),
-    # Next-Gen Open ASR Architectures (from stt-arena-demo-2026)
-    ASRModelInfo(name="moonshine-base", family="UsefulSensors Moonshine", params="400M", vram="~2 GB", speed_factor="~10x", languages="English Only", description="UsefulSensors/moonshine-base ultra-fast edge speech recognition"),
-    ASRModelInfo(name="nvidia-parakeet-tdt-v3", family="NVIDIA NeMo", params="600M", vram="~4 GB", speed_factor="~12x", languages="Multilingual (25 EU)", description="nvidia/parakeet-tdt-0.6b-v3 FastConformer-TDT architecture"),
-    ASRModelInfo(name="kyutai-stt", family="Kyutai Moshi", params="1000M", vram="~6 GB", speed_factor="~4x", languages="EN / FR", description="kyutai/stt-1b-en_fr real-time duplex speech recognition"),
-    ASRModelInfo(name="meta-omnilingual-asr", family="Meta AI", params="300M", vram="~2 GB", speed_factor="~8x", languages="Multilingual (100+)", description="facebook/omnilingual-asr universal speech recognition"),
-    ASRModelInfo(name="voxtral-mini-3b", family="Mistral Voxtral", params="3000M", vram="~12 GB", speed_factor="~1x", languages="Multilingual (EN/FR/ES/DE/IT)", description="mistralai/Voxtral-Mini-3B-2507 edge speech model"),
-    ASRModelInfo(name="gemma-3n-audio", family="Google Gemma", params="2000M", vram="~8 GB", speed_factor="~2x", languages="Multilingual", description="google/gemma-3n-E2B-it edge audio understanding (gated on HF)"),
-    # Cloud STT APIs (Reference Integrations)
-    ASRModelInfo(name="openai-whisper-api", family="Cloud Hosted API", params="Cloud (1550M)", vram="Cloud", speed_factor="~20x", languages="Multilingual (99+)", description="OpenAI Hosted Whisper API (whisper-1 / gpt-4o-transcribe)"),
-    ASRModelInfo(name="google-omni-api", family="Cloud Hosted API", params="Cloud (Gemini)", vram="Cloud", speed_factor="~25x", languages="Multilingual (100+)", description="Google Gemini 2.5 Flash Audio Understanding API"),
-    ASRModelInfo(name="deepgram-nova-2", family="Cloud Hosted API", params="Cloud", vram="Cloud", speed_factor="~40x", languages="Multilingual (30+)", description="Deepgram Nova-2 high-speed speech-to-text API"),
-    ASRModelInfo(name="elevenlabs-scribe-v2", family="Cloud Hosted API", params="Cloud", vram="Cloud", speed_factor="~35x", languages="Multilingual (99+)", description="ElevenLabs Scribe v2 SOTA diarized transcription API"),
-    ASRModelInfo(name="amazon-transcribe", family="Cloud Hosted API", params="Cloud", vram="Cloud", speed_factor="~20x", languages="Multilingual (100+)", description="AWS Amazon Transcribe real-time & batch ASR API"),
-    # Newly Discovered Open Architectures (YouTube Playlist Analysis)
-    ASRModelInfo(name="sensevoice-small", family="Alibaba FunAudioLLM", params="230M", vram="~1.5 GB", speed_factor="~50x", languages="ZH / EN / JA / KO / YUE", description="FunAudioLLM/SenseVoiceSmall rich audio transcription (50x real-time)"),
-    ASRModelInfo(name="nvidia-nemotron-speech-asr", family="NVIDIA NeMo", params="600M", vram="~4 GB", speed_factor="~15x", languages="Multilingual (25+)", description="NVIDIA Cache-Aware low-latency streaming RNN-T ASR"),
-    ASRModelInfo(name="microsoft-vibevoice-asr", family="Microsoft", params="1200M", vram="~6 GB", speed_factor="~8x", languages="Multilingual (50+)", description="Microsoft VibeVoice 60-minute long-form single pass acoustic ASR"),
-    ASRModelInfo(name="moss-sats-diarized-asr", family="Fudan OpenMOSS", params="800M", vram="~5 GB", speed_factor="~6x", languages="Multilingual", description="Speech-Aware Target-Speaker ASR with integrated speaker diarization"),
-    ASRModelInfo(name="qwen3-audio-stt", family="Alibaba Qwen", params="3000M", vram="~10 GB", speed_factor="~3x", languages="Multilingual (100+)", description="Alibaba Qwen3 Audio speech understanding and ASR"),
-    ASRModelInfo(name="tencent-covo-audio-7b", family="Tencent", params="7000M", vram="~16 GB", speed_factor="~1x", languages="ZH / EN", description="Tencent Covo-Audio 7B end-to-end open voice AI model"),
+    # Next-Gen Open ASR & Edge Architectures
+    ASRModelInfo(name="moonshine-tiny", family="UsefulSensors Moonshine", params="150M", vram="~1 GB", speed_factor="~20x", languages="English Only", description="UsefulSensors/moonshine-tiny ultra-lightweight edge ONNX model"),
+    ASRModelInfo(name="moonshine-base", family="UsefulSensors Moonshine", params="400M", vram="~2 GB", speed_factor="~10x", languages="English Only", description="UsefulSensors/moonshine-base high-accuracy edge ONNX model"),
+    ASRModelInfo(name="sensevoice-small", family="Alibaba FunAudioLLM", params="230M", vram="~1.5 GB", speed_factor="~50x", languages="ZH / EN / JA / KO / YUE", description="FunAudioLLM/SenseVoiceSmall rich audio transcription (50x real-time) with SER & AED"),
+    ASRModelInfo(name="meta-omnilingual-asr", family="Meta AI", params="300M", vram="~2 GB", speed_factor="~8x", languages="Multilingual (100+)", description="facebook/mms-1b-all universal speech recognition with adapter switching"),
+]
+
+# Deferred / Unimplemented Cloud-Hosted STT Models Section
+CLOUD_MODEL_CATALOG: List[ASRModelInfo] = [
+    ASRModelInfo(name="openai-whisper-api", family="Cloud Hosted API", params="Cloud (1550M)", vram="Cloud", speed_factor="~20x", languages="Multilingual (99+)", description="OpenAI Hosted Whisper API (whisper-1 / gpt-4o-transcribe)", implemented=False, is_local=False),
+    ASRModelInfo(name="google-gemini-audio", family="Cloud Hosted API", params="Cloud (Gemini)", vram="Cloud", speed_factor="~25x", languages="Multilingual (100+)", description="Google Gemini 2.5 Flash Audio Understanding API", implemented=False, is_local=False),
+    ASRModelInfo(name="deepgram-nova-2", family="Cloud Hosted API", params="Cloud", vram="Cloud", speed_factor="~40x", languages="Multilingual (30+)", description="Deepgram Nova-2 speech-to-text API", implemented=False, is_local=False),
+    ASRModelInfo(name="elevenlabs-scribe-v2", family="Cloud Hosted API", params="Cloud", vram="Cloud", speed_factor="~35x", languages="Multilingual (99+)", description="ElevenLabs Scribe v2 diarized transcription API", implemented=False, is_local=False),
+    ASRModelInfo(name="amazon-transcribe", family="Cloud Hosted API", params="Cloud", vram="Cloud", speed_factor="~20x", languages="Multilingual (100+)", description="AWS Amazon Transcribe batch & real-time ASR API", implemented=False, is_local=False),
+    ASRModelInfo(name="azure-speech-to-text", family="Cloud Hosted API", params="Cloud", vram="Cloud", speed_factor="~25x", languages="Multilingual (100+)", description="Microsoft Azure Cognitive Services Speech-to-Text API", implemented=False, is_local=False),
+    ASRModelInfo(name="groq-whisper-cloud", family="Cloud Hosted API", params="Cloud (LPU)", vram="Cloud", speed_factor="~100x", languages="Multilingual (99+)", description="Groq Cloud LPU accelerated Whisper inference API", implemented=False, is_local=False),
+    ASRModelInfo(name="assemblyai-conformer-2", family="Cloud Hosted API", params="Cloud", vram="Cloud", speed_factor="~30x", languages="Multilingual (99+)", description="AssemblyAI Universal-2 / Conformer-2 speech API", implemented=False, is_local=False),
+    ASRModelInfo(name="revai-speech-api", family="Cloud Hosted API", params="Cloud", vram="Cloud", speed_factor="~25x", languages="Multilingual (30+)", description="Rev.ai enterprise speech recognition API", implemented=False, is_local=False),
 ]
 
 

@@ -5,7 +5,7 @@ import json
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel
 
 DB_PATH = Path("data/history.db")
@@ -303,31 +303,18 @@ def clear_all_history() -> int:
         return cursor.rowcount
 
 
-def compare_runs(job_id_a: str, job_id_b: str) -> Optional[Dict[str, Any]]:
-    """Compare two transcription runs, generating word diffs, alignment, and performance metrics."""
-    run_a = get_history_item(job_id_a)
-    run_b = get_history_item(job_id_b)
-    if not run_a or not run_b:
-        return None
+def _normalize_diff_word(w: str) -> str:
+    """Normalize word token for alignment comparison."""
+    return w.strip().lower().strip(".,!?;:\"'()[]{}")
 
-    res_a = run_a.get("result", {})
-    res_b = run_b.get("result", {})
 
-    segs_a = res_a.get("segments", [])
-    segs_b = res_b.get("segments", [])
-
-    text_a = " ".join(s.get("text", "").strip() for s in segs_a)
-    text_b = " ".join(s.get("text", "").strip() for s in segs_b)
-
-    words_a = text_a.split()
-    words_b = text_b.split()
-
-    def norm(t: str) -> str:
-        return t.strip().lower().strip(".,!?;:\"'()[]{}")
-
-    norm_a = [norm(w) for w in words_a]
-    norm_b = [norm(w) for w in words_b]
-
+def _compute_word_diffs(
+    words_a: List[str],
+    words_b: List[str],
+) -> Tuple[float, List[Dict[str, str]], List[Dict[str, str]]]:
+    """Compute token difference opcodes and similarity ratio."""
+    norm_a = [_normalize_diff_word(w) for w in words_a]
+    norm_b = [_normalize_diff_word(w) for w in words_b]
     matcher = difflib.SequenceMatcher(None, norm_a, norm_b)
     similarity = matcher.ratio() * 100.0
 
@@ -336,57 +323,66 @@ def compare_runs(job_id_a: str, job_id_b: str) -> Optional[Dict[str, Any]]:
 
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
-            for w in words_a[i1:i2]:
-                diff_a.append({"word": w, "status": "equal"})
-            for w in words_b[j1:j2]:
-                diff_b.append({"word": w, "status": "equal"})
+            diff_a.extend({"word": w, "status": "equal"} for w in words_a[i1:i2])
+            diff_b.extend({"word": w, "status": "equal"} for w in words_b[j1:j2])
         elif tag == "delete":
-            for w in words_a[i1:i2]:
-                diff_a.append({"word": w, "status": "deleted"})
+            diff_a.extend({"word": w, "status": "deleted"} for w in words_a[i1:i2])
         elif tag == "insert":
-            for w in words_b[j1:j2]:
-                diff_b.append({"word": w, "status": "inserted"})
+            diff_b.extend({"word": w, "status": "inserted"} for w in words_b[j1:j2])
         elif tag == "replace":
-            for w in words_a[i1:i2]:
-                diff_a.append({"word": w, "status": "replaced"})
-            for w in words_b[j1:j2]:
-                diff_b.append({"word": w, "status": "replaced"})
+            diff_a.extend({"word": w, "status": "replaced"} for w in words_a[i1:i2])
+            diff_b.extend({"word": w, "status": "replaced"} for w in words_b[j1:j2])
 
-    dur_a = float(run_a.get("duration", 0.0))
-    proc_a = float(run_a.get("processing_time", 0.0))
-    speed_a = round(dur_a / proc_a, 2) if proc_a > 0 else 0.0
+    return round(similarity, 1), diff_a, diff_b
 
-    dur_b = float(run_b.get("duration", 0.0))
-    proc_b = float(run_b.get("processing_time", 0.0))
-    speed_b = round(dur_b / proc_b, 2) if proc_b > 0 else 0.0
+
+def _build_run_summary(
+    run_dict: Dict[str, Any],
+    words: List[str],
+    diff_list: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    """Extract metrics and metadata for one comparison run."""
+    dur = float(run_dict.get("duration", 0.0))
+    proc = float(run_dict.get("processing_time", 0.0))
+    speed = round(dur / proc, 2) if proc > 0 else 0.0
+    segs = run_dict.get("result", {}).get("segments", [])
+
+    return {
+        "id": run_dict["id"],
+        "model": run_dict["model"],
+        "language": run_dict["language"],
+        "duration": dur,
+        "processing_time": proc,
+        "speedup": speed,
+        "word_count": len(words),
+        "speakers_count": run_dict.get("speakers_count", 0),
+        "segments": segs,
+        "full_text": " ".join(s.get("text", "").strip() for s in segs),
+        "diff_words": diff_list,
+    }
+
+
+def compare_runs(job_id_a: str, job_id_b: str) -> Optional[Dict[str, Any]]:
+    """Compare two transcription runs, generating word diffs, alignment, and performance metrics."""
+    run_a = get_history_item(job_id_a)
+    run_b = get_history_item(job_id_b)
+    if not run_a or not run_b:
+        return None
+
+    words_a = " ".join(s.get("text", "").strip() for s in run_a.get("result", {}).get("segments", [])).split()
+    words_b = " ".join(s.get("text", "").strip() for s in run_b.get("result", {}).get("segments", [])).split()
+
+    similarity, diff_a, diff_b = _compute_word_diffs(words_a, words_b)
 
     return {
         "source_name": run_a.get("source_name") or run_b.get("source_name"),
-        "similarity_score": round(similarity, 1),
-        "run_a": {
-            "id": run_a["id"],
-            "model": run_a["model"],
-            "language": run_a["language"],
-            "duration": dur_a,
-            "processing_time": proc_a,
-            "speedup": speed_a,
-            "word_count": len(words_a),
-            "speakers_count": run_a.get("speakers_count", 0),
-            "segments": segs_a,
-            "diff_words": diff_a,
-            "created_at": run_a["created_at"],
-        },
-        "run_b": {
-            "id": run_b["id"],
-            "model": run_b["model"],
-            "language": run_b["language"],
-            "duration": dur_b,
-            "processing_time": proc_b,
-            "speedup": speed_b,
-            "word_count": len(words_b),
-            "speakers_count": run_b.get("speakers_count", 0),
-            "segments": segs_b,
-            "diff_words": diff_b,
-            "created_at": run_b["created_at"],
+        "similarity_score": similarity,
+        "run_a": _build_run_summary(run_a, words_a, diff_a),
+        "run_b": _build_run_summary(run_b, words_b, diff_b),
+        "delta": {
+            "duration_diff": round(float(run_b.get("duration", 0)) - float(run_a.get("duration", 0)), 2),
+            "speedup_diff": round((_build_run_summary(run_b, words_b, diff_b)["speedup"]) - (_build_run_summary(run_a, words_a, diff_a)["speedup"]), 2),
+            "word_count_diff": len(words_b) - len(words_a),
+            "speakers_diff": int(run_b.get("speakers_count", 0)) - int(run_a.get("speakers_count", 0)),
         },
     }

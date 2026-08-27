@@ -52,14 +52,38 @@ HTML_PAGE = r"""<!DOCTYPE html>
         <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm">
           <h2 class="font-semibold text-slate-800 dark:text-slate-200 text-sm tracking-wider uppercase">Configuration</h2>
           <div>
-            <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Whisper Model & Size</label>
+            <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">ASR Model & Family</label>
             <select id="model-select" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-medium">
-              <option value="tiny">Tiny (39M params • Fastest)</option>
-              <option value="base" selected>Base (74M params • Standard)</option>
-              <option value="small">Small (244M params • Balanced)</option>
-              <option value="medium">Medium (769M params • High Accuracy)</option>
-              <option value="large-v3">Large-v3 (1550M params • Best Quality)</option>
+              <optgroup label="🚀 Faster-Whisper (OpenAI / CTranslate2)">
+                <option value="tiny">Whisper Tiny (39M • Ultra-Fast)</option>
+                <option value="base" selected>Whisper Base (74M • Standard)</option>
+                <option value="small">Whisper Small (244M • Balanced)</option>
+                <option value="medium">Whisper Medium (769M • High Accuracy)</option>
+                <option value="turbo">Whisper Turbo (809M • High Speed & Quality)</option>
+                <option value="large-v3">Whisper Large-v3 (1550M • Best Quality)</option>
+                <option value="distil-small.en">Distil-Whisper Small (English Fast)</option>
+                <option value="distil-medium.en">Distil-Whisper Medium (English Fast)</option>
+              </optgroup>
+              <optgroup label="🇮🇩 Indonesian Regional & Dialects (CTC)">
+                <option value="indonesian-wav2vec2-regional">Wav2Vec2 Regional (ID / JV / SU • Native)</option>
+                <option value="indonesian-wav2vec2-large-xlsr">Wav2Vec2 Large XLSR (53-Lang Indonesian)</option>
+              </optgroup>
+              <optgroup label="🎭 Alibaba SenseVoice (Rich Speech Recognition)">
+                <option value="sensevoice-small">SenseVoice-Small (50x RTF • SER Emotion & AED Events)</option>
+              </optgroup>
+              <optgroup label="⚡ UsefulSensors Moonshine (Edge ONNX)">
+                <option value="moonshine-tiny">Moonshine Tiny (27M • Zero-Overhead Edge)</option>
+                <option value="moonshine-base">Moonshine Base (61M • Accurate Edge)</option>
+              </optgroup>
+              <optgroup label="🌐 Meta MMS (Omnilingual CTC)">
+                <option value="meta-omnilingual-asr">Meta MMS-1B (100+ World Languages)</option>
+              </optgroup>
             </select>
+            <div id="model-badges" class="flex flex-wrap items-center gap-1.5 mt-2 text-[10px]">
+              <span class="px-1.5 py-0.5 rounded font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">● Local</span>
+              <span class="px-1.5 py-0.5 rounded font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">GPU/CPU</span>
+              <span class="px-1.5 py-0.5 rounded font-medium bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20" id="badge-params">74M params</span>
+            </div>
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Language</label>
@@ -471,7 +495,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
         const style = getSpeakerStyle(seg.speaker || 'Speaker 1');
         div.className = `group relative p-3 rounded-xl border transition-all ${isLatest ? 'bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-500/60 shadow-sm shadow-indigo-500/10 ring-1 ring-indigo-500/30' : 'bg-slate-50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800/80 hover:border-indigo-400 dark:hover:border-slate-700'}`;
         const latestBadge = isLatest ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 animate-pulse">● Latest</span>` : '';
-        div.innerHTML = `<div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1"><div class="flex items-center gap-2"><span class="inline-flex items-center px-2 py-0.5 rounded-md font-semibold ${style.bg} ${style.text} border ${style.border}">${seg.speaker || 'Speaker 1'}</span>${latestBadge}</div><div class="flex items-center gap-2"><span class="font-mono text-slate-400 dark:text-slate-500">${formatTime(seg.start)} → ${formatTime(seg.end)}</span><button onclick="deleteSegment(${i})" class="opacity-0 group-hover:opacity-100 text-rose-400 hover:text-rose-600 p-0.5 rounded transition-opacity" title="Delete segment">✕</button></div></div><div class="text-slate-800 dark:text-slate-200 leading-relaxed">${seg.text}</div>`;
+        const emotionBadge = (seg.emotion && seg.emotion !== 'NEUTRAL') ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">🎭 ${seg.emotion}</span>` : '';
+        const eventBadges = (seg.events && seg.events.length) ? seg.events.map(e => `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">🔔 ${e}</span>`).join('') : '';
+        div.innerHTML = `<div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1"><div class="flex items-center gap-2"><span class="inline-flex items-center px-2 py-0.5 rounded-md font-semibold ${style.bg} ${style.text} border ${style.border}">${seg.speaker || 'Speaker 1'}</span>${emotionBadge}${eventBadges}${latestBadge}</div><div class="flex items-center gap-2"><span class="font-mono text-slate-400 dark:text-slate-500">${formatTime(seg.start)} → ${formatTime(seg.end)}</span><button onclick="deleteSegment(${i})" class="opacity-0 group-hover:opacity-100 text-rose-400 hover:text-rose-600 p-0.5 rounded transition-opacity" title="Delete segment">✕</button></div></div><div class="text-slate-800 dark:text-slate-200 leading-relaxed">${seg.text}</div>`;
         segmentsContainer.appendChild(div);
       }
     }

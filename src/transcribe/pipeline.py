@@ -4,10 +4,11 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Callable, List, Optional
-from .models import TranscriptionResult, TranscriptSegment
+from typing import Any, Callable, Dict, List, Optional, Tuple
+from .models import SpeakerSegment, TranscriptionResult, TranscriptSegment
 from .audio import get_audio_info
 from .downloader import is_url, download_url
+from .engines.factory import get_transcriber
 from .transcriber import FasterWhisperTranscriber
 from .diarizer import PyAnnoteDiarizer
 from .aligner import align_transcription_and_diarization
@@ -33,6 +34,67 @@ def convert_slice_to_wav_16k(input_path: str, output_path: str, start_offset: fl
     return output_path
 
 
+def _prepare_pipeline_audio(
+    source_str: str,
+    tmpdir: str,
+    start_offset: float,
+    on_progress: Optional[Callable[[dict], None]],
+) -> Tuple[str, str, float]:
+    """Resolve download, normalize 16kHz WAV, and generate slice if resuming."""
+    if is_url(source_str):
+        def dl_cb(pct, speed_mb=0.0):
+            if on_progress:
+                on_progress({
+                    "stage": "downloading",
+                    "percent": pct,
+                    "speed": speed_mb,
+                })
+        local_audio_path = download_url(source_str, on_progress=dl_cb)
+    else:
+        local_audio_path = source_str
+
+    if on_progress:
+        on_progress({
+            "stage": "audio_prep",
+            "message": "⚙️ Normalizing audio (16kHz PCM WAV)...",
+        })
+
+    temp_full_wav = os.path.join(tmpdir, "full_16k.wav")
+    convert_slice_to_wav_16k(local_audio_path, temp_full_wav, start_offset=0.0)
+    total_duration, _, _ = get_audio_info(temp_full_wav)
+
+    temp_slice_wav = os.path.join(tmpdir, "slice_16k.wav")
+    if start_offset > 0:
+        convert_slice_to_wav_16k(local_audio_path, temp_slice_wav, start_offset=start_offset)
+    else:
+        temp_slice_wav = temp_full_wav
+
+    return temp_full_wav, temp_slice_wav, total_duration
+
+
+def _run_diarization_safe(
+    diarizer: Any,
+    enable_diarization: bool,
+    temp_full_wav: str,
+    num_speakers: Optional[int],
+    min_speakers: Optional[int],
+    max_speakers: Optional[int],
+) -> List[SpeakerSegment]:
+    """Execute PyAnnote diarization with graceful fallback on single speaker."""
+    if not enable_diarization or not diarizer:
+        return []
+    try:
+        return diarizer.diarize(
+            temp_full_wav,
+            num_speakers=num_speakers,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+        )
+    except Exception as e:
+        print(f"Warning: Diarization skipped ({e}). Single speaker mode.")
+        return []
+
+
 class AudioTranscriptionPipeline:
     """End-to-end orchestrator for audio transcription + speaker diarization."""
 
@@ -45,8 +107,8 @@ class AudioTranscriptionPipeline:
     ):
         self.device = device
         self.enable_diarization = enable_diarization
-        self.transcriber = FasterWhisperTranscriber(
-            model_size=whisper_model_size,
+        self.transcriber = get_transcriber(
+            model_name=whisper_model_size,
             device=device,
         )
         self.diarizer = (
@@ -67,39 +129,13 @@ class AudioTranscriptionPipeline:
         on_segment: Optional[Callable[[TranscriptSegment], None]] = None,
         on_progress: Optional[Callable[[dict], None]] = None,
     ) -> TranscriptionResult:
-        """Run complete transcription + diarization with fine-grained progress feedback."""
+        """Execute full speech recognition and optional speaker diarization pipeline."""
         source_str = str(audio_path_or_url)
-        if is_url(source_str):
-            def dl_cb(downloaded, total, pct, speed_mb=0.0):
-                if on_progress:
-                    on_progress({
-                        "stage": "downloading",
-                        "downloaded": downloaded,
-                        "total": total,
-                        "percent": pct,
-                        "speed": speed_mb,
-                    })
-
-            local_audio_path = download_url(source_str, on_progress=dl_cb)
-        else:
-            local_audio_path = source_str
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            if on_progress:
-                on_progress({
-                    "stage": "audio_prep",
-                    "message": "⚙️ Normalizing audio (16kHz PCM WAV)...",
-                })
-
-            temp_full_wav = os.path.join(tmpdir, "full_16k.wav")
-            convert_slice_to_wav_16k(local_audio_path, temp_full_wav, start_offset=0.0)
-            total_duration, _, _ = get_audio_info(temp_full_wav)
-
-            temp_slice_wav = os.path.join(tmpdir, "slice_16k.wav")
-            if start_offset > 0:
-                convert_slice_to_wav_16k(local_audio_path, temp_slice_wav, start_offset=start_offset)
-            else:
-                temp_slice_wav = temp_full_wav
+            temp_full_wav, temp_slice_wav, total_duration = _prepare_pipeline_audio(
+                source_str, tmpdir, start_offset, on_progress
+            )
 
             if on_progress:
                 on_progress({
@@ -129,37 +165,26 @@ class AudioTranscriptionPipeline:
                         "segment": seg.model_dump(),
                     })
 
-            # 1. ASR transcription
             raw_new_segments, lang, lang_prob = self.transcriber.transcribe(
                 temp_slice_wav,
                 language=language,
                 on_segment=seg_wrapper,
             )
 
-            # Re-index merged segments
             all_raw = list(existing_segments or []) + raw_new_segments
             for idx, s in enumerate(all_raw):
                 s.id = idx
 
-            # 2. Speaker diarization
-            speaker_segments = []
-            if self.enable_diarization and self.diarizer:
-                try:
-                    speaker_segments = self.diarizer.diarize(
-                        temp_full_wav,
-                        num_speakers=num_speakers,
-                        min_speakers=min_speakers,
-                        max_speakers=max_speakers,
-                    )
-                except Exception as e:
-                    print(f"Warning: Diarization skipped ({e}). Single speaker mode.")
-
-            # 3. Temporal Alignment
-            aligned_segments = align_transcription_and_diarization(
-                all_raw,
-                speaker_segments,
+            speaker_segments = _run_diarization_safe(
+                self.diarizer,
+                self.enable_diarization,
+                temp_full_wav,
+                num_speakers,
+                min_speakers,
+                max_speakers,
             )
 
+            aligned_segments = align_transcription_and_diarization(all_raw, speaker_segments)
             unique_speakers = sorted(list({s.speaker for s in aligned_segments}))
 
             return TranscriptionResult(
@@ -198,17 +223,18 @@ class AudioTranscriptionPipeline:
 
         exported_files = {}
         for fmt in formats:
-            p = out_path / f"{stem}.{fmt}"
-            if fmt == "json":
-                export_json(result, p)
-            elif fmt == "srt":
-                export_srt(result, p)
-            elif fmt == "vtt":
-                export_vtt(result, p)
-            elif fmt == "txt":
-                export_txt(result, p)
-            elif fmt == "md":
-                export_md(result, p)
-            exported_files[fmt] = str(p)
+            fmt_lower = fmt.lower().strip()
+            out_file = out_path / f"{stem}.{fmt_lower}"
+            if fmt_lower == "json":
+                export_json(result, out_file)
+            elif fmt_lower == "srt":
+                export_srt(result, out_file)
+            elif fmt_lower == "vtt":
+                export_vtt(result, out_file)
+            elif fmt_lower == "txt":
+                export_txt(result, out_file)
+            elif fmt_lower == "md":
+                export_md(result, out_file)
+            exported_files[fmt_lower] = str(out_file)
 
         return exported_files

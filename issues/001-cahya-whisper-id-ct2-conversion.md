@@ -5,7 +5,7 @@
 ## Description
 When running `cahya/whisper-small-id` or `cahya/whisper-medium-id` with `FasterWhisperTranscriber`, the engine raised:
 ```text
-Unable to open file 'model.bin' in model '/home/aiserver/.cache/huggingface/hub/models--cahya--whisper-small-id/snapshots/...'
+Unable to open file 'model.bin' in model '~/.cache/huggingface/hub/models--cahya--whisper-small-id/snapshots/...'
 ```
 
 ## Root Cause

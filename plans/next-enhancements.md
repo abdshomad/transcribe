@@ -1,47 +1,80 @@
-# Active Next Enhancements
+# Active Next Enhancements (100% Local Server Execution)
 
-> **Technical Architecture Reference**: [`docs/features/core/multi-engine-transcriber-architecture.md`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/docs/features/core/multi-engine-transcriber-architecture.md)
+> **Current Milestone**: `v0.4.0` (`COMPLETED` ✅ — Archived to [`./roadmaps/v0.4.0-milestone.md`](./roadmaps/v0.4.0-milestone.md))  
+> **Domain Documentation**: [`../docs/features/core/polymorphic-engines.md`](../docs/features/core/polymorphic-engines.md)
 
 ---
 
-## Phase 1: Modular Engine Framework & Transcriber Factory
-- [ ] [ASR-005] Base Transcriber Interface: Define abstract `BaseTranscriber` in `src/transcribe/engines/base.py` with standard `transcribe(audio_path, language, ...)` returning `Tuple[List[TranscriptSegment], str, float]`.
-- [ ] [ASR-006] Engine Factory & Registry: Create dynamic `EngineRegistry` in `src/transcribe/engines/factory.py` with lazy dynamic imports for zero-overhead initialization.
-- [ ] [ASR-007] Faster-Whisper Engine Refactor: Wrap `FasterWhisperTranscriber` as `FasterWhisperEngine(BaseTranscriber)` in `src/transcribe/engines/faster_whisper.py`.
+## Active Roadmap: Universal Web Model & Variant Hierarchy Selector (`v0.5.0`)
 
-## Phase 2: Indonesian Wav2Vec2 & Meta MMS Acoustic CTC Engines
-- [ ] [ASR-008] Transformers CTC Base Engine: Implement `TransformersCTCEngine` in `src/transcribe/engines/transformers_ctc.py` supporting PyTorch CTC models with chunked windowing.
-- [ ] [ASR-009] Regional Indonesian Acoustic Models: Integrate `indonesian-wav2vec2-regional` (`indonesian-nlp/wav2vec2-indonesian-javanese-sundanese`) and `indonesian-wav2vec2-large-xlsr`.
-- [ ] [ASR-010] Meta MMS Omnilingual ASR: Integrate `meta-omnilingual-asr` (`facebook/mms-1b-all`) with language-specific adapter vocabulary switching for 100+ languages.
+### Core Architecture & Streaming Pipeline
+- [ ] [WEB-001] Extend `/api/models` endpoint with rich metadata: family, variant sizes, quantization options (`float16`, `int8`, `int8_float16`), VRAM estimates, parameter count, and local server cache status (`is_cached: bool`).
+- [ ] [WEB-002] Implement Dynamic Cascaded Selectors in Web UI ([`src/transcribe/web.py`](../src/transcribe/web.py)): Family/Architecture -> Model Variant / Size -> Quantization / Compute Type with real-time parameter & VRAM badges.
+- [ ] [WEB-003] Implement Dynamic Adaptive Settings Panel in Web UI that contextually mounts family-specific knobs (Whisper: Beam Size / VAD; SenseVoice: Emotion / ITN; Meta MMS: Adapter Lang; CTC: Chunk Window).
+- [ ] [WEB-004] Implement Automatic On-Demand Server Model Download with real-time SSE progress bar feedback in Web UI during transcription initialization if model is not yet cached.
+- [ ] [WEB-005] Update Timeline Quick-Switch Pills to dynamically generate comparative 1-click re-transcribe buttons for all sizes/variants of the selected family and top cross-family alternatives.
+- [ ] [WEB-006] Wire dynamic form parameters (`compute_type`, `beam_size`, `vad_filter`, `use_itn`, `chunk_length_s`) from Web UI into `/api/transcribe-stream` and [`src/transcribe/pipeline.py`](../src/transcribe/pipeline.py).
+- [ ] [WEB-007] Add end-to-end unit and integration tests in `tests/test_server_models_selection.py` and ensure cyclomatic complexity stays $\le 10$ across all new and modified routines.
 
-## Phase 3: Alibaba FunAudioLLM SenseVoice Engine
-- [ ] [ASR-011] SenseVoice-Small Engine: Implement `SenseVoiceEngine` in `src/transcribe/engines/sensevoice.py` supporting `FunAudioLLM/SenseVoiceSmall` (50x real-time factor).
-- [ ] [ASR-012] Emotion (SER) & Event (AED) Parsing: Implement structured markup extractor for SenseVoice tags (`<|HAPPY|>`, `<|LAUGHTER|>`, `<|APPLAUSE|>`, `<|CRY|>`, `<|MUSIC|>`).
+---
 
-## Phase 4: UsefulSensors Moonshine Edge ONNX Engine
-- [ ] [ASR-013] Moonshine ONNX Engine: Implement `MoonshineEngine` in `src/transcribe/engines/moonshine.py` utilizing ONNX Runtime for zero-dependency edge CPU/GPU execution.
-- [ ] [ASR-014] Moonshine Model Variants: Support `moonshine-tiny` and `moonshine-base` variable-length acoustic encoding.
+### E2E Browser Visual Verification Suite (`screenshots/e2e/`)
+- [ ] [E2E-001] Create automated Playwright E2E runner [`tests/e2e/test_web_models_screenshots.py`](../tests/e2e/test_web_models_screenshots.py) with structured screenshot output path: `screenshots/e2e/{model}/{model}-{size}-{variant}/{stepnum}-{short-step-name}.jpg`.
+- [ ] [E2E-002] Implement 5 standard lifecycle screenshot steps per model variant:
+  - `01-initial-state.jpg`: Initial clean UI load.
+  - `02-model-configured.jpg`: Cascaded model, size variant, and compute type selected with active badges & adaptive knobs.
+  - `03-file-uploaded.jpg`: Audio sample loaded and ready to transcribe.
+  - `04-streaming-progress.jpg`: Active SSE streaming with real-time progress bar, live badges, and partial segments.
+  - `05-completed-results.jpg`: Completed transcript timeline, speaker badges, and export action bar.
+- [ ] [E2E-003] Verify all generated JPG screenshots in `screenshots/e2e/` and create visual walkthrough report with carousels.
 
-## Phase 5: Cloud-Hosted STT API Provider Integrations
-- [ ] [ASR-015] Cloud STT Base Provider: Create async/sync HTTP client interface in `src/transcribe/engines/cloud/base.py` with environment key configuration.
-- [ ] [ASR-016] OpenAI Whisper API: Implement `OpenAIWhisperEngine` supporting `whisper-1` and `gpt-4o-transcribe` with timestamp granularities.
-- [ ] [ASR-017] Google Gemini Audio API: Implement `GoogleGeminiAudioEngine` using Google GenAI SDK for multimodal audio understanding and transcription.
-- [ ] [ASR-018] Deepgram Nova-2 API: Implement `DeepgramEngine` for ultra-fast streaming and batch Nova-2 ASR.
-- [ ] [ASR-019] ElevenLabs Scribe v2 API: Implement `ElevenLabsScribeEngine` supporting 99-language diarized cloud transcription.
-- [ ] [ASR-020] AWS Amazon Transcribe: Implement `AmazonTranscribeEngine` using `boto3` for S3 upload and asynchronous transcription jobs.
+---
 
-## Phase 6: NVIDIA NeMo FastConformer & Cache-Aware Nemotron
-- [ ] [ASR-021] NVIDIA NeMo Parakeet TDT Engine: Implement `NeMoEngine` in `src/transcribe/engines/nemo.py` supporting `nvidia/parakeet-tdt-0.6b-v3` FastConformer-TDT architecture.
-- [ ] [ASR-022] NVIDIA Nemotron Streaming Engine: Implement low-latency streaming RNN-T inference with cache-aware chunk processing.
+### Sub-Plan 1: Faster-Whisper Family (OpenAI / CTranslate2)
+- [ ] [MOD-FW-01] Whisper Tiny (`tiny` • 39M • float16 / int8 / int8_float16) + E2E screenshots in `screenshots/e2e/whisper/whisper-tiny-default/`
+- [ ] [MOD-FW-02] Whisper Base (`base` • 74M • float16 / int8 / int8_float16) + E2E screenshots in `screenshots/e2e/whisper/whisper-base-default/`
+- [ ] [MOD-FW-03] Whisper Small (`small` • 244M • float16 / int8 / int8_float16) + E2E screenshots in `screenshots/e2e/whisper/whisper-small-default/`
+- [ ] [MOD-FW-04] Whisper Medium (`medium` • 769M • float16 / int8 / int8_float16) + E2E screenshots in `screenshots/e2e/whisper/whisper-medium-default/`
+- [ ] [MOD-FW-05] Whisper Turbo (`turbo` • 809M • float16 / int8 / int8_float16) + E2E screenshots in `screenshots/e2e/whisper/whisper-turbo-default/`
+- [ ] [MOD-FW-06] Whisper Large-v3 (`large-v3` • 1550M • float16 / int8 / int8_float16) + E2E screenshots in `screenshots/e2e/whisper/whisper-large-v3-default/`
+- [ ] [MOD-FW-07] Distil-Whisper Small English (`distil-small.en` • 166M • English Fast) + E2E screenshots in `screenshots/e2e/whisper/distil-whisper-small-en/`
+- [ ] [MOD-FW-08] Distil-Whisper Medium English (`distil-medium.en` • 394M • English Fast) + E2E screenshots in `screenshots/e2e/whisper/distil-whisper-medium-en/`
 
-## Phase 7: Long-Form & Next-Gen Audio-LLMs
-- [ ] [ASR-023] Microsoft VibeVoice-ASR Engine: Implement `VibeVoiceEngine` in `src/transcribe/engines/vibevoice.py` for unified 60-minute single-pass acoustic ASR.
-- [ ] [ASR-024] Kyutai Moshi / STT Engine: Implement `KyutaiEngine` in `src/transcribe/engines/kyutai.py` supporting duplex speech recognition.
-- [ ] [ASR-025] Mistral Voxtral Mini 3B Engine: Implement `VoxtralEngine` in `src/transcribe/engines/voxtral.py` for edge speech understanding.
-- [ ] [ASR-026] Fudan MOSS-SATS Engine: Implement `MossSatsEngine` in `src/transcribe/engines/moss_sats.py` for target-speaker diarized ASR.
-- [ ] [ASR-027] Alibaba Qwen3-Audio & Tencent Covo-Audio: Implement multimodal Audio-LLM conversational speech extractors.
+---
 
-## Phase 8: Unified Benchmark Matrix & Web UI Integration
-- [ ] [ASR-028] Universal Benchmark Runner Extension: Update `scripts/benchmark_all_models.py` to evaluate non-Whisper backends (CTC, SenseVoice, Moonshine, Cloud APIs) side-by-side with WER/CER and RTF metrics.
-- [ ] [ASR-029] Web UI Model Selector & Capability Badges: Update Web UI with multi-family dropdowns, capability badges (`[Cloud]`, `[Edge]`, `[SER]`, `[CTC]`), and multi-engine live execution.
-- [ ] [ASR-030] Full End-to-End Test Suite: Implement unit and mock tests in `tests/test_engines/` for all 8 engine categories.
+### Sub-Plan 2: Alibaba SenseVoice Family (Rich Speech Recognition)
+- [ ] [MOD-SV-01] SenseVoice-Small FP16 (`sensevoice-small` • SER Emotion & AED Events) + E2E screenshots in `screenshots/e2e/sensevoice/sensevoice-small-fp16/`
+- [ ] [MOD-SV-02] SenseVoice-Small INT8 (`sensevoice-small` • Quantized Fast) + E2E screenshots in `screenshots/e2e/sensevoice/sensevoice-small-int8/`
+
+---
+
+### Sub-Plan 3: UsefulSensors Moonshine Family (Edge ASR)
+- [ ] [MOD-MS-01] Moonshine Tiny ONNX (`moonshine-tiny` • 27M • Zero-Overhead ONNX) + E2E screenshots in `screenshots/e2e/moonshine/moonshine-tiny-onnx/`
+- [ ] [MOD-MS-02] Moonshine Base ONNX (`moonshine-base` • 61M • Accurate ONNX) + E2E screenshots in `screenshots/e2e/moonshine/moonshine-base-onnx/`
+- [ ] [MOD-MS-03] Moonshine Tiny PyTorch (`moonshine-tiny` • 27M • Transformers Fallback) + E2E screenshots in `screenshots/e2e/moonshine/moonshine-tiny-torch/`
+- [ ] [MOD-MS-04] Moonshine Base PyTorch (`moonshine-base` • 61M • Transformers Fallback) + E2E screenshots in `screenshots/e2e/moonshine/moonshine-base-torch/`
+
+---
+
+### Sub-Plan 4: Meta MMS Omnilingual Family (Multilingual CTC)
+- [ ] [MOD-MMS-01] Meta MMS-1B Omnilingual (`meta-omnilingual-asr` • 1B • 100+ Langs) + E2E screenshots in `screenshots/e2e/mms/mms-1b-all/`
+
+---
+
+### Sub-Plan 5: Indonesian Regional & Dialects CTC Family
+- [ ] [MOD-CTC-01] Indonesian Wav2Vec2 Regional (`indonesian-wav2vec2-regional` • ID/JV/SU Native) + E2E screenshots in `screenshots/e2e/wav2vec2/wav2vec2-regional-id-jv-su/`
+- [ ] [MOD-CTC-02] Indonesian Wav2Vec2 Large XLSR (`indonesian-wav2vec2-large-xlsr` • 53-Lang Indonesian) + E2E screenshots in `screenshots/e2e/wav2vec2/wav2vec2-large-xlsr-id/`
+
+---
+
+## Backlog: Cloud-Hosted STT APIs (Deferred / Not Implemented)
+> *Note: These cloud integrations are deferred to keep the system 100% self-hosted on local server GPUs.*
+- [ ] [CLOUD-001] [NOT IMPLEMENTED] OpenAI Whisper Cloud API (`whisper-1`, `gpt-4o-transcribe`)
+- [ ] [CLOUD-002] [NOT IMPLEMENTED] Google Gemini 2.5 Flash Audio Understanding API
+- [ ] [CLOUD-003] [NOT IMPLEMENTED] Deepgram Nova-2 REST / Streaming STT API
+- [ ] [CLOUD-004] [NOT IMPLEMENTED] ElevenLabs Scribe v2 Diarized Transcription API
+- [ ] [CLOUD-005] [NOT IMPLEMENTED] AWS Amazon Transcribe Asynchronous Batch Job API
+- [ ] [CLOUD-006] [NOT IMPLEMENTED] Microsoft Azure Cognitive Services Speech-to-Text API
+- [ ] [CLOUD-007] [NOT IMPLEMENTED] Groq Cloud LPU Accelerated Whisper API
+- [ ] [CLOUD-008] [NOT IMPLEMENTED] AssemblyAI Universal-2 / Conformer-2 Speech API
+- [ ] [CLOUD-009] [NOT IMPLEMENTED] Rev.ai Enterprise Speech Recognition API

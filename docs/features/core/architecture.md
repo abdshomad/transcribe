@@ -48,20 +48,20 @@ flowchart TD
 
 | Module | Responsibility | Key Classes / Functions |
 | :--- | :--- | :--- |
-| [`transcribe.audio`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/audio.py) | Audio ingestion, format conversion, 16kHz mono resampling | `load_and_resample_audio`, `normalize_audio` |
-| [`transcribe.downloader`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/downloader.py) | Remote URL, YouTube (`yt-dlp`), Google Drive (`gdown`) fetcher | `download_audio`, `is_url` |
-| [`transcribe.transcriber`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/transcriber.py) | Faster-Whisper ASR inference wrapper with VAD | `FasterWhisperTranscriber`, `transcribe_audio` |
-| [`transcribe.diarizer`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/diarizer.py) | PyAnnote speaker diarization & fallback clustering | `PyAnnoteDiarizer`, `diarize_audio` |
-| [`transcribe.aligner`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/aligner.py) | Word-level & segment temporal intersection mapping | `align_transcription_and_diarization` |
-| [`transcribe.pipeline`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/pipeline.py) | High-level orchestrator for end-to-end processing | `AudioTranscriptionPipeline.process()` |
-| [`transcribe.history`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/history.py) | SQLite WAL persistence, multi-model storage, comparison | `save_history`, `list_sources`, `compare_runs` |
-| [`transcribe.exporters`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/exporters.py) | Subtitle and document serializers (JSON, SRT, VTT, TXT) | `export_to_srt`, `export_to_vtt`, `export_to_txt` |
-| [`transcribe.server`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/server.py) | FastAPI REST server, SSE progress streaming | `transcribe_audio_stream` |
-| [`transcribe.models`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/models.py) | Pydantic data schemas, 33-model catalog & specs | `MODEL_CATALOG`, `TranscriptionResult` |
-| [`transcribe.metrics`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/metrics.py) | Normalized WER, CER, and Real-Time Factor (RTF) calculations | `calculate_wer`, `calculate_cer`, `calculate_rtf` |
-| [`transcribe.youtube`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/youtube.py) | YouTube playlist metadata extractor & research sync | `fetch_playlist_videos` |
-| [`transcribe.web`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/web.py) | Tailwind CSS & JavaScript single-page web UI | `HTML_PAGE` |
-| [`transcribe.cli`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/cli.py) | Rich/Typer command-line interface | `transcribe.cli:main` |
+| [`transcribe.audio`](../../../src/transcribe/audio.py) | Audio ingestion, format conversion, 16kHz mono resampling | `load_and_resample_audio`, `normalize_audio` |
+| [`transcribe.downloader`](../../../src/transcribe/downloader.py) | Remote URL, YouTube (`yt-dlp`), Google Drive (`gdown`) fetcher | `download_audio`, `is_url` |
+| [`transcribe.transcriber`](../../../src/transcribe/transcriber.py) | Faster-Whisper ASR inference wrapper with VAD | `FasterWhisperTranscriber`, `transcribe_audio` |
+| [`transcribe.diarizer`](../../../src/transcribe/diarizer.py) | PyAnnote speaker diarization & fallback clustering | `PyAnnoteDiarizer`, `diarize_audio` |
+| [`transcribe.aligner`](../../../src/transcribe/aligner.py) | Word-level & segment temporal intersection mapping | `align_transcription_and_diarization` |
+| [`transcribe.pipeline`](../../../src/transcribe/pipeline.py) | High-level orchestrator for end-to-end processing | `AudioTranscriptionPipeline.process()` |
+| [`transcribe.history`](../../../src/transcribe/history.py) | SQLite WAL persistence, multi-model storage, comparison | `save_history`, `list_sources`, `compare_runs` |
+| [`transcribe.exporters`](../../../src/transcribe/exporters.py) | Subtitle and document serializers (JSON, SRT, VTT, TXT) | `export_to_srt`, `export_to_vtt`, `export_to_txt` |
+| [`transcribe.server`](../../../src/transcribe/server.py) | FastAPI REST server, SSE progress streaming | `transcribe_audio_stream` |
+| [`transcribe.models`](../../../src/transcribe/models.py) | Pydantic data schemas, 33-model catalog & specs | `MODEL_CATALOG`, `TranscriptionResult` |
+| [`transcribe.metrics`](../../../src/transcribe/metrics.py) | Normalized WER, CER, and Real-Time Factor (RTF) calculations | `calculate_wer`, `calculate_cer`, `calculate_rtf` |
+| [`transcribe.youtube`](../../../src/transcribe/youtube.py) | YouTube playlist metadata extractor & research sync | `fetch_playlist_videos` |
+| [`transcribe.web`](../../../src/transcribe/web.py) | Tailwind CSS & JavaScript single-page web UI | `HTML_PAGE` |
+| [`transcribe.cli`](../../../src/transcribe/cli.py) | Rich/Typer command-line interface | `transcribe.cli:main` |
 
 ---
 
@@ -95,7 +95,7 @@ erDiagram
 
 ## 4. Multi-Model Comparison & Benchmarking
 
-The comparison engine in [`src/transcribe/history.py`](file:///home/aiserver/LABS/AI-VOICE/audio-to-transcription/src/transcribe/history.py) takes any two job IDs ($Job_A$ and $Job_B$) for the same audio source and performs:
+The comparison engine in [`../../../src/transcribe/history.py`](../../../src/transcribe/history.py) takes any two job IDs ($Job_A$ and $Job_B$) for the same audio source and performs:
 
 1. **Normalized Token Diffing**:
    Tokens are stripped of surrounding punctuation and case-normalized to compute accurate sequence alignment opcodes:

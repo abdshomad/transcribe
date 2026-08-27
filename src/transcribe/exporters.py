@@ -121,7 +121,12 @@ def export_md(result: TranscriptionResult, output_path: Optional[str | Path] = N
     for seg in result.segments:
         start_fmt = _format_time_simple(seg.start)
         end_fmt = _format_time_simple(seg.end)
-        lines.append(f"> **[{start_fmt} ➜ {end_fmt}] {seg.speaker}**:")
+        badge = ""
+        if seg.emotion and seg.emotion != "NEUTRAL":
+            badge += f" `[{seg.emotion}]`"
+        if seg.events:
+            badge += f" `[{' '.join(seg.events)}]`"
+        lines.append(f"> **[{start_fmt} ➜ {end_fmt}] {seg.speaker}**{badge}:")
         lines.append(f"> {seg.text.strip()}")
         lines.append("")
 
