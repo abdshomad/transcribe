@@ -21,10 +21,13 @@ def test_normalize_mms_lang():
 
 
 def test_ctc_model_aliases():
-    """Verify alias mapping for regional Indonesian and MMS models."""
+    """Verify alias mapping for regional Indonesian, MMS and OmniASR models."""
     assert "indonesian-wav2vec2-regional" in CTC_MODEL_ALIASES
     assert "indonesian-wav2vec2-large-xlsr" in CTC_MODEL_ALIASES
     assert "meta-omnilingual-asr" in CTC_MODEL_ALIASES
+    assert "meta-mms-300m" in CTC_MODEL_ALIASES
+    assert "omniasr-ctc-300m" in CTC_MODEL_ALIASES
+    assert CTC_MODEL_ALIASES["omniasr-ctc-300m"] == "bezzam/omniasr-ctc-300m-v2"
     assert CTC_MODEL_ALIASES["meta-omnilingual-asr"] == "facebook/mms-1b-all"
 
 
@@ -34,6 +37,14 @@ def test_mms_engine_init():
     assert engine.model_name == "meta-omnilingual-asr"
     assert engine.resolved_model_id in ("facebook/mms-1b-all", "data/models/mms-1b-all")
     assert engine.target_lang == "id"
+
+
+def test_omniasr_engine_init():
+    """Test Meta OmniASR engine instantiation."""
+    engine = TransformersCTCEngine(model_name="omniasr-ctc-300m", device="cpu")
+    assert engine.model_name == "omniasr-ctc-300m"
+    assert engine.resolved_model_id == "bezzam/omniasr-ctc-300m-v2"
+    assert get_transcriber("omniasr-ctc-300m") is not None
 
 
 @patch("soundfile.read")

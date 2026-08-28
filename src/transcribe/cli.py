@@ -1,16 +1,17 @@
 import time
+import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from .pipeline import AudioTranscriptionPipeline
-from .downloader import is_url
-from .models import TranscriptSegment, MODEL_CATALOG
+from .downloader import is_url, is_gdrive_folder, fetch_gdrive_folder_contents
+from .models import TranscriptSegment, MODEL_CATALOG, TranscriptionResult, DiarizedSegment
 from .youtube import is_youtube_url, fetch_youtube_transcript
 from .exporters import export_transcription
-from .history import save_history
+from .history import save_history, find_checkpoint
 
 app = typer.Typer(
     name="transcribe",
@@ -20,11 +21,231 @@ app = typer.Typer(
 console = Console()
 
 
+def _sanitize_dirname(name: str) -> str:
+    """Sanitize folder or file name for filesystem safety."""
+    import re
+    return re.sub(r'[\\/*?:"<>|]', "_", name).strip()
+
+
 def _render_live_segment(seg: TranscriptSegment) -> None:
     """Print streaming transcript segment with timestamp."""
     start_fmt = f"{int(seg.start // 60):02d}:{seg.start % 60:05.2f}"
     end_fmt = f"{int(seg.end // 60):02d}:{seg.end % 60:05.2f}"
     console.print(f"  [cyan]{start_fmt} ➜ {end_fmt}[/cyan]  {seg.text.strip()}")
+
+
+def _render_files_table(exported: dict[str, str], title: str = "\nGenerated Output Files") -> None:
+    """Display table of exported files."""
+    table = Table(title=title, border_style="green")
+    table.add_column("Format", style="cyan", justify="center")
+    table.add_column("File Path", style="magenta")
+    for fmt, path in exported.items():
+        table.add_row(fmt.upper(), path)
+    console.print(table)
+
+
+def _handle_youtube_run(audio_source: str, output_dir: Path, formats: List[str], force: bool) -> None:
+    """Handle YouTube URL transcription or caption extraction."""
+    console.print(Panel.fit(
+        f"[bold white]YouTube Transcription Mode[/bold white]\n"
+        f"URL: [cyan]{audio_source}[/cyan]" + (" | [yellow]FORCE MODE[/yellow]" if force else ""),
+        border_style="red",
+    ))
+    console.print("[bold cyan]Searching for existing YouTube subtitles/captions via yt-dlp...[/bold cyan]")
+    yt_res = fetch_youtube_transcript(audio_source)
+    if not yt_res:
+        console.print("[bold yellow]Sorry, no existing transcription or subtitles found for this YouTube video.[/bold yellow]")
+        return
+
+    console.print(f"[bold green]✔ Found existing subtitles for:[/bold green] [yellow]{yt_res['title']}[/yellow] ({yt_res['duration']:.1f}s, lang: {yt_res['language']})\n")
+    for s in yt_res["segments"]:
+        _render_live_segment(s)
+
+    diarized_segs = [
+        DiarizedSegment(
+            id=s.id,
+            speaker="SPEAKER_00",
+            start=s.start,
+            end=s.end,
+            text=s.text,
+            words=s.words
+        )
+        for s in yt_res["segments"]
+    ]
+    trans_result = TranscriptionResult(
+        language=yt_res["language"],
+        language_probability=1.0,
+        duration=yt_res["duration"],
+        segments=diarized_segs,
+        speakers=["SPEAKER_00"]
+    )
+    exported = export_transcription(trans_result, output_dir, f"youtube_{yt_res['video_id']}", formats)
+    job_id = f"yt_{yt_res['video_id']}_{int(time.time())}" if force else f"yt_{yt_res['video_id']}"
+    save_history(
+        job_id=job_id,
+        source_name=yt_res["title"],
+        model="youtube-captions",
+        result_data=trans_result.model_dump(),
+        status="completed",
+        last_processed_time=yt_res["duration"],
+        processing_time=0.5,
+        audio_path=audio_source
+    )
+    _render_files_table(exported)
+    console.print("[bold green]✔ Done![/bold green]\n")
+
+
+def _make_cli_progress_handler() -> Callable[[dict], None]:
+    """Create a progress reporter for CLI media conversion and downloading."""
+    last_reported = {"converting": -1, "downloading": -1}
+
+    def on_prog(info: dict) -> None:
+        stage = info.get("stage")
+        if stage in last_reported:
+            pct = int(info.get("percent", 0.0))
+            step = 10 if stage == "converting" else 25
+            if pct != last_reported[stage] and (pct % step == 0 or pct == 100):
+                last_reported[stage] = pct
+                icon = "⚙️ Converting media..." if stage == "converting" else "📥 Downloading..."
+                console.print(f"  [cyan]{icon} {pct}%[/cyan]")
+
+    return on_prog
+
+
+def _run_single_file(
+    pipeline: AudioTranscriptionPipeline,
+    audio_source: str,
+    display_name: str,
+    output_dir: Path,
+    formats: List[str],
+    language: Optional[str],
+    num_speakers: Optional[int],
+    force: bool,
+    output_stem: Optional[str] = None,
+) -> dict[str, str]:
+    """Execute single audio transcription with silent checkpoint recovery."""
+    start_offset = 0.0
+    existing_segments = None
+    if not force:
+        cp = find_checkpoint(display_name, pipeline.transcriber.model_name)
+        if cp and cp.get("last_processed_time", 0) > 0:
+            start_offset = float(cp["last_processed_time"])
+            raw_segs = cp.get("segments", [])
+            existing_segments = [TranscriptSegment(**s) for s in raw_segs]
+            start_fmt = f"{int(start_offset // 60):02d}:{start_offset % 60:05.2f}"
+            console.print(f"  [bold yellow]⚡ Checkpoint detected! Auto-resuming from {start_fmt}...[/bold yellow]")
+
+    start_t = time.time()
+    prog_handler = _make_cli_progress_handler()
+    res = pipeline.process(
+        audio_path_or_url=audio_source,
+        language=language,
+        num_speakers=num_speakers,
+        start_offset=start_offset,
+        existing_segments=existing_segments,
+        on_segment=_render_live_segment,
+        on_progress=prog_handler,
+    )
+    stem = output_stem or Path(display_name).stem or "transcript"
+    exported = export_transcription(res, output_dir, stem=stem, formats=formats)
+    elapsed = time.time() - start_t
+
+    job_id = f"cli_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+    save_history(
+        job_id=job_id,
+        source_name=display_name,
+        model=pipeline.transcriber.model_name,
+        result_data=res.model_dump(),
+        status="completed",
+        last_processed_time=res.duration,
+        processing_time=round(elapsed, 2),
+        audio_path=audio_source,
+    )
+    return exported
+
+
+def _run_gdrive_folder_batch(
+    audio_source: str,
+    output_dir: Path,
+    model: str,
+    device: str,
+    language: Optional[str],
+    num_speakers: Optional[int],
+    diarize: bool,
+    formats: List[str],
+    force: bool,
+    yes: bool,
+    model_suffix: bool = False,
+) -> None:
+    """Discover files in Google Drive folder, request confirmation, and process 1 by 1."""
+    console.print("[bold cyan]🔍 Discovering audio recordings inside Google Drive folder...[/bold cyan]")
+    folder_title, media_files = fetch_gdrive_folder_contents(audio_source)
+    if not media_files:
+        console.print("[bold yellow]No audio/video recordings found in this Google Drive folder.[/bold yellow]")
+        return
+
+    table = Table(title=f"📁 Discovered Files in: {folder_title}", border_style="cyan")
+    table.add_column("#", justify="center", style="bold cyan")
+    table.add_column("Recording Name", style="bold yellow")
+    table.add_column("File ID", style="magenta")
+    for idx, f in enumerate(media_files, start=1):
+        table.add_row(str(idx), f["name"], f["id"])
+    console.print(table)
+
+    if not yes:
+        confirmed = typer.confirm(f"\nProceed with batch transcribing all {len(media_files)} files?", default=True)
+        if not confirmed:
+            console.print("[yellow]Batch processing cancelled by user.[/yellow]")
+            return
+
+    safe_folder = _sanitize_dirname(folder_title)
+    batch_output_dir = output_dir / safe_folder
+    batch_output_dir.mkdir(parents=True, exist_ok=True)
+
+    pipeline = AudioTranscriptionPipeline(
+        whisper_model_size=model,
+        device=device,
+        enable_diarization=diarize,
+    )
+
+    summary_rows = []
+    for idx, f in enumerate(media_files, start=1):
+        console.print(Panel.fit(
+            f"[bold white]Batch Item [{idx}/{len(media_files)}][/bold white]: [cyan]{f['name']}[/cyan] ([yellow]{model}[/yellow])",
+            border_style="blue",
+        ))
+        t0 = time.time()
+        base_stem = Path(f["name"]).stem or f["name"]
+        stem = f"{base_stem}_{model}" if model_suffix else base_stem
+        try:
+            _run_single_file(
+                pipeline=pipeline,
+                audio_source=f["url"],
+                display_name=f["name"],
+                output_dir=batch_output_dir,
+                formats=formats,
+                language=language,
+                num_speakers=num_speakers,
+                force=force,
+                output_stem=stem,
+            )
+            elapsed = time.time() - t0
+            summary_rows.append((idx, f["name"], "[green]Success[/green]", f"{elapsed:.1f}s"))
+        except Exception as e:
+            elapsed = time.time() - t0
+            console.print(f"[bold red]❌ Failed to transcribe '{f['name']}': {e}[/bold red]")
+            summary_rows.append((idx, f["name"], f"[red]Failed ({type(e).__name__})[/red]", f"{elapsed:.1f}s"))
+
+    # Render final batch summary
+    summary_table = Table(title="\n📊 Google Drive Batch Summary", border_style="green")
+    summary_table.add_column("#", justify="center", style="cyan")
+    summary_table.add_column("Recording Name", style="bold yellow")
+    summary_table.add_column("Status", justify="center")
+    summary_table.add_column("Time", justify="right", style="magenta")
+    for r in summary_rows:
+        summary_table.add_row(str(r[0]), r[1], r[2], r[3])
+    console.print(summary_table)
+    console.print(f"[bold green]✔ Batch complete! Results saved in: [cyan]{batch_output_dir}[/cyan][/bold green]\n")
 
 
 @app.command("run")
@@ -38,66 +259,29 @@ def transcribe_cmd(
     diarize: bool = typer.Option(False, "--diarize/--no-diarize", help="Enable speaker diarization"),
     formats: List[str] = typer.Option(["json", "txt", "srt", "vtt"], "--format", "-f", help="Output formats"),
     force: bool = typer.Option(False, "--force", help="Force re-transcribe and record a fresh run in history"),
+    yes: bool = typer.Option(True, "--yes/--prompt", "-y", help="Proceed automatically with batch processing (default: auto-proceed)"),
+    model_suffix: bool = typer.Option(False, "--model-suffix", help="Append model name as suffix to output filenames"),
 ):
-    """Transcribe an audio file or YouTube URL with real-time stream output."""
-    import uuid
-    # Check if input is a YouTube URL
+    """Transcribe an audio file, YouTube URL, or Google Drive folder with stream output."""
     if is_youtube_url(audio_source):
-        console.print(Panel.fit(
-            f"[bold white]YouTube Transcription Mode[/bold white]\n"
-            f"URL: [cyan]{audio_source}[/cyan]" + (" | [yellow]FORCE MODE[/yellow]" if force else ""),
-            border_style="red",
-        ))
-        console.print("[bold cyan]Searching for existing YouTube subtitles/captions via yt-dlp...[/bold cyan]")
-        yt_res = fetch_youtube_transcript(audio_source)
-        if yt_res:
-            console.print(f"[bold green]✔ Found existing subtitles for:[/bold green] [yellow]{yt_res['title']}[/yellow] ({yt_res['duration']:.1f}s, lang: {yt_res['language']})\n")
-            for s in yt_res["segments"]:
-                _render_live_segment(s)
-                
-            from .models import TranscriptionResult, DiarizedSegment
-            diarized_segs = [
-                DiarizedSegment(
-                    id=s.id,
-                    speaker="SPEAKER_00",
-                    start=s.start,
-                    end=s.end,
-                    text=s.text,
-                    words=s.words
-                )
-                for s in yt_res["segments"]
-            ]
-            trans_result = TranscriptionResult(
-                language=yt_res["language"],
-                language_probability=1.0,
-                duration=yt_res["duration"],
-                segments=diarized_segs,
-                speakers=["SPEAKER_00"]
-            )
-            exported = export_transcription(trans_result, output_dir, f"youtube_{yt_res['video_id']}", formats)
-            job_id = f"yt_{yt_res['video_id']}_{int(time.time())}" if force else f"yt_{yt_res['video_id']}"
-            save_history(
-                job_id=job_id,
-                source_name=yt_res["title"],
-                model="youtube-captions",
-                result_data=trans_result.model_dump(),
-                status="completed",
-                last_processed_time=yt_res["duration"],
-                processing_time=0.5,
-                audio_path=audio_source
-            )
-            
-            table = Table(title="\nGenerated Output Files", border_style="green")
-            table.add_column("Format", style="cyan", justify="center")
-            table.add_column("File Path", style="magenta")
-            for fmt, path in exported.items():
-                table.add_row(fmt.upper(), path)
-            console.print(table)
-            console.print("[bold green]✔ Done![/bold green]\n")
-            return
-        else:
-            console.print("[bold yellow]Sorry, no existing transcription or subtitles found for this YouTube video.[/bold yellow]")
-            return
+        _handle_youtube_run(audio_source, output_dir, formats, force)
+        return
+
+    if is_gdrive_folder(audio_source):
+        _run_gdrive_folder_batch(
+            audio_source=audio_source,
+            output_dir=output_dir,
+            model=model,
+            device=device,
+            language=language,
+            num_speakers=num_speakers,
+            diarize=diarize,
+            formats=formats,
+            force=force,
+            yes=yes,
+            model_suffix=model_suffix,
+        )
+        return
 
     if not is_url(audio_source) and not Path(audio_source).exists():
         console.print(f"[bold red]Error:[/bold red] Local file not found: {audio_source}")
@@ -118,22 +302,18 @@ def transcribe_cmd(
     )
 
     console.print("[bold green]Transcribing speech stream:[/bold green]")
-    exported = pipeline.process_and_export(
-        audio_path_or_url=audio_source,
+    exported = _run_single_file(
+        pipeline=pipeline,
+        audio_source=audio_source,
+        display_name=display_name,
         output_dir=output_dir,
         formats=formats,
         language=language,
         num_speakers=num_speakers,
-        on_segment=_render_live_segment,
+        force=force,
     )
 
-    table = Table(title="\nGenerated Output Files", border_style="green")
-    table.add_column("Format", style="cyan", justify="center")
-    table.add_column("File Path", style="magenta")
-    for fmt, path in exported.items():
-        table.add_row(fmt.upper(), path)
-
-    console.print(table)
+    _render_files_table(exported)
     console.print("[bold green]✔ Done![/bold green]\n")
 
 

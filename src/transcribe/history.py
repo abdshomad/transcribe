@@ -2,11 +2,16 @@
 
 import difflib
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from dotenv import load_dotenv
 from pydantic import BaseModel
+
+load_dotenv(".secrets")
+load_dotenv(".env")
 
 DB_PATH = Path("data/history.db")
 
@@ -77,13 +82,16 @@ def _init_db(conn: sqlite3.Connection) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_transcriptions_created_at ON transcriptions (created_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_transcriptions_source ON transcriptions (source_name)")
 
-        # Seed DEMO token if table is empty
-        cur = conn.execute("SELECT COUNT(*) FROM api_tokens")
-        if cur.fetchone()[0] == 0:
-            conn.execute(
-                "INSERT INTO api_tokens (token, label, created_at, is_active) VALUES ('DEMO', 'Default Demo Token', ?, 1)",
-                (time.time(),),
-            )
+        # Seed configured env token
+        env_token = os.getenv("TOKEN", "DEMO").strip()
+        conn.execute(
+            "INSERT OR IGNORE INTO api_tokens (token, label, created_at, is_active) VALUES (?, 'Active Token', ?, 1)",
+            (env_token, time.time()),
+        )
+        conn.execute(
+            "UPDATE api_tokens SET is_active = 1 WHERE token = ?",
+            (env_token,),
+        )
 
 
 def _get_db() -> sqlite3.Connection:
@@ -128,6 +136,28 @@ def find_job_by_source(source_name: str) -> Optional[Dict[str, Any]]:
             (source_name,),
         ).fetchone()
         return dict(row) if row else None
+
+
+def find_checkpoint(source_name: str, model: str) -> Optional[Dict[str, Any]]:
+    """Find recoverable in-progress checkpoint for source and model."""
+    with _get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM transcriptions 
+            WHERE source_name = ? AND model = ? AND status != 'completed' AND last_processed_time > 0
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (source_name, model),
+        ).fetchone()
+        if not row:
+            return None
+        res = dict(row)
+        try:
+            res_data = json.loads(res.get("result_json", "{}"))
+            res["segments"] = res_data.get("segments", [])
+        except Exception:
+            res["segments"] = []
+        return res
 
 
 def save_history(

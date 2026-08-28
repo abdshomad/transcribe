@@ -93,3 +93,36 @@ def test_multi_model_storage_and_comparison():
     # Cleanup
     delete_history_item(job_tiny)
     delete_history_item(job_large)
+
+
+def test_find_checkpoint():
+    from transcribe.history import find_checkpoint
+
+    src = "checkpoint_test_recording.mp3"
+    job_cp = "job_cp_test_999"
+    res_partial = {
+        "language": "en",
+        "duration": 120.0,
+        "speakers": ["SPEAKER_00"],
+        "segments": [
+            {"id": 0, "speaker": "SPEAKER_00", "start": 0.0, "end": 10.0, "text": "Part 1"}
+        ],
+    }
+    save_history(
+        job_id=job_cp,
+        source_name=src,
+        model="base",
+        result_data=res_partial,
+        status="in_progress",
+        last_processed_time=10.0,
+        processing_time=1.5,
+    )
+
+    cp = find_checkpoint(src, "base")
+    assert cp is not None
+    assert cp["id"] == job_cp
+    assert cp["last_processed_time"] == 10.0
+    assert len(cp["segments"]) == 1
+
+    delete_history_item(job_cp)
+

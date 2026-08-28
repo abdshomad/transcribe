@@ -24,6 +24,7 @@ dependencies = [
     "gdown>=6.1.0",
     "yt-dlp>=2026.8.19",
     "transformers>=5.16.1",
+    "fireredasr>=0.0.2",
 ]
 
 [project.scripts]

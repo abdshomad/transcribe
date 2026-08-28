@@ -27,6 +27,7 @@ from .models import (
 )
 from .pipeline import AudioTranscriptionPipeline
 from .youtube import is_youtube_url, fetch_youtube_transcript
+from .downloader import is_gdrive_folder, fetch_gdrive_folder_contents
 from .history import (
     is_valid_token,
     save_history,
@@ -42,7 +43,8 @@ from .history import (
 )
 from .web import HTML_PAGE
 
-load_dotenv()
+load_dotenv(".secrets")
+load_dotenv(".env")
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "4013"))
 DEFAULT_MODEL = os.getenv("WHISPER_MODEL", "base")
@@ -287,6 +289,139 @@ def _resolve_upload_or_source(
     return None
 
 
+def _handle_gdrive_folder_stream(
+    source_target: str,
+    job_id: str,
+    model: str,
+    language: Optional[str],
+    diarize: bool,
+    num_speakers: Optional[int],
+    compute_type: str,
+    beam_size: int,
+    vad_filter: bool,
+    t0: float,
+    msg_queue: queue.Queue,
+) -> bool:
+    """Handle Google Drive folder batch transcription stream. Returns True if handled."""
+    if not is_gdrive_folder(source_target):
+        return False
+
+    msg_queue.put({
+        "type": "progress",
+        "data": {
+            "stage": "discovering_gdrive_folder",
+            "percent": 5.0,
+            "message": "🔍 Scanning Google Drive folder for audio recordings...",
+        },
+    })
+    folder_title, media_files = fetch_gdrive_folder_contents(source_target)
+    if not media_files:
+        msg_queue.put({
+            "type": "error",
+            "error": "No audio or video recordings found in this Google Drive folder.",
+        })
+        return True
+
+    msg_queue.put({
+        "type": "progress",
+        "data": {
+            "stage": "batch_found",
+            "percent": 10.0,
+            "message": f"📁 Found {len(media_files)} recordings in '{folder_title}'. Starting batch processing...",
+        },
+    })
+
+    pipeline = AudioTranscriptionPipeline(
+        whisper_model_size=model,
+        device=DEFAULT_DEVICE,
+        compute_type=compute_type,
+        enable_diarization=diarize,
+    )
+
+    batch_segments = []
+    total_files = len(media_files)
+    for idx, f in enumerate(media_files, start=1):
+        file_pct_base = 10.0 + ((idx - 1) / total_files) * 80.0
+        msg_queue.put({
+            "type": "progress",
+            "data": {
+                "stage": "batch_item",
+                "percent": file_pct_base,
+                "message": f"🎙️ Processing ({idx}/{total_files}): {f['name']}...",
+            },
+        })
+        def item_prog(info: dict) -> None:
+            if info.get("stage") == "converting":
+                conv_pct = file_pct_base + (info.get("percent", 0.0) / 100.0) * (20.0 / total_files)
+                msg_queue.put({
+                    "type": "progress",
+                    "data": {
+                        "stage": "converting",
+                        "percent": conv_pct,
+                        "message": f"⚙️ Converting ({idx}/{total_files}): {f['name']}... {int(info.get('percent', 0.0))}%",
+                    },
+                })
+
+        try:
+            res = pipeline.process(
+                audio_path_or_url=f["url"],
+                language=language,
+                num_speakers=num_speakers,
+                beam_size=beam_size,
+                vad_filter=vad_filter,
+                on_progress=item_prog,
+            )
+            item_data = res.model_dump()
+            save_history(
+                job_id=f"{job_id}_{idx}",
+                source_name=f"{folder_title} / {f['name']}",
+                model=model,
+                result_data=item_data,
+                status="completed",
+                processing_time=round(time.time() - t0, 2),
+                audio_path=f["url"],
+            )
+            for s in res.segments:
+                msg_queue.put({
+                    "type": "progress",
+                    "data": {
+                        "stage": "transcribing",
+                        "percent": file_pct_base + (1.0 / total_files) * 80.0,
+                        "segment": s.model_dump(),
+                    },
+                })
+            batch_segments.extend(res.segments)
+        except Exception as e:
+            msg_queue.put({
+                "type": "progress",
+                "data": {
+                    "stage": "item_error",
+                    "percent": file_pct_base,
+                    "message": f"⚠️ Skipped '{f['name']}': {e}",
+                },
+            })
+
+    proc_time = round(time.time() - t0, 2)
+    final_res = {
+        "language": language or "auto",
+        "language_probability": 1.0,
+        "duration": sum(s.end - s.start for s in batch_segments),
+        "segments": [s.model_dump() for s in batch_segments],
+        "speakers": sorted(list({s.speaker for s in batch_segments})),
+    }
+    save_history(
+        job_id=job_id,
+        source_name=folder_title,
+        model=model,
+        result_data=final_res,
+        status="completed",
+        processing_time=proc_time,
+        audio_path=source_target,
+    )
+    msg_queue.put({"type": "done", "job_id": job_id, "data": final_res, "processing_time": proc_time})
+    return True
+
+
 def _run_pipeline_worker(
     job_id: str,
     source_target: str,
@@ -310,6 +445,21 @@ def _run_pipeline_worker(
     """Run transcription worker in background thread with checkpointing."""
     try:
         if _handle_youtube_stream(source_target, job_id, t0, msg_queue):
+            return
+
+        if _handle_gdrive_folder_stream(
+            source_target=source_target,
+            job_id=job_id,
+            model=model,
+            language=language,
+            diarize=diarize,
+            num_speakers=num_speakers,
+            compute_type=compute_type,
+            beam_size=beam_size,
+            vad_filter=vad_filter,
+            t0=t0,
+            msg_queue=msg_queue,
+        ):
             return
 
         if not check_model_cached(model):

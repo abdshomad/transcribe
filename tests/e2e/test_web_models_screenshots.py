@@ -62,6 +62,12 @@ TEST_MODELS = [
     # Sub-Plan 5: Indonesian CTC
     {"group": "wav2vec2", "folder": "wav2vec2-regional-id-jv-su", "family": "Indonesian CTC", "variant": "indonesian-wav2vec2-regional", "compute": "default", "sample": "id"},
     {"group": "wav2vec2", "folder": "wav2vec2-large-xlsr-id", "family": "Indonesian CTC", "variant": "indonesian-wav2vec2-large-xlsr", "compute": "default", "sample": "id"},
+    # Sub-Plan 6: FireRed Team
+    {"group": "firered", "folder": "fireredasr-aed-l", "family": "FireRed Team", "variant": "fireredasr-aed-l", "compute": "default", "sample": "en"},
+    # Sub-Plan 7: Meta OmniASR
+    {"group": "omniasr", "folder": "omniasr-ctc-300m", "family": "Meta OmniASR", "variant": "omniasr-ctc-300m", "compute": "default", "sample": "en"},
+    # Sub-Plan 8: Tsinghua VoiceMem
+    {"group": "voicemem", "folder": "voicemem-normal", "family": "Tsinghua VoiceMem", "variant": "voicemem-normal", "compute": "default", "sample": "en"},
 ]
 
 

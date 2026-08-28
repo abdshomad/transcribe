@@ -11,6 +11,11 @@ TRANSFORMERS_CTC_ALIASES: Dict[str, str] = {
     "indonesian-wav2vec2-regional": "indonesian-nlp/wav2vec2-indonesian-javanese-sundanese",
     "indonesian-wav2vec2-large-xlsr": "cahya/wav2vec2-large-xlsr-indonesian",
     "meta-omnilingual-asr": "facebook/mms-1b-all",
+    "meta-mms-1b-all": "facebook/mms-1b-all",
+    "meta-mms-1b-fl102": "facebook/mms-1b-fl102",
+    "meta-mms-300m": "facebook/mms-300m-1400",
+    "omniasr-ctc-300m": "bezzam/omniasr-ctc-300m-v2",
+    "omniasr-ctc-1b": "bezzam/omniasr-ctc-1b-v2",
 }
 CTC_MODEL_ALIASES = TRANSFORMERS_CTC_ALIASES
 
@@ -18,6 +23,7 @@ LOCAL_CTC_MODEL_DIRS: Dict[str, str] = {
     "indonesian-wav2vec2-regional": "data/models/indonesian-wav2vec2-regional",
     "indonesian-wav2vec2-large-xlsr": "data/models/indonesian-wav2vec2-large-xlsr",
     "meta-omnilingual-asr": "data/models/mms-1b-all",
+    "meta-mms-1b-all": "data/models/mms-1b-all",
 }
 
 ISO639_TO_MMS: Dict[str, str] = {
@@ -79,12 +85,16 @@ def _decode_ctc_chunk(
     """Run CTC acoustic forward pass and decode text."""
     import torch
 
-    inputs = processor(chunk, sampling_rate=sample_rate, return_tensors="pt")
     model_dtype = getattr(model, "dtype", None)
-    target_dtype = model_dtype if isinstance(model_dtype, torch.dtype) else None
+    target_dtype = model_dtype if isinstance(model_dtype, torch.dtype) else torch.float32
 
-    input_values = inputs.input_values.to(device, dtype=target_dtype)
-    attention_mask = inputs.attention_mask.to(device) if getattr(inputs, "attention_mask", None) is not None else None
+    if hasattr(processor, "feature_extractor"):
+        inputs = processor(chunk, sampling_rate=sample_rate, return_tensors="pt")
+        input_values = inputs.input_values.to(device, dtype=target_dtype)
+        attention_mask = inputs.attention_mask.to(device) if getattr(inputs, "attention_mask", None) is not None else None
+    else:
+        input_values = torch.from_numpy(chunk).unsqueeze(0).to(device, dtype=target_dtype)
+        attention_mask = None
 
     with torch.no_grad():
         out = model(input_values, attention_mask=attention_mask)
@@ -126,8 +136,39 @@ def _build_ctc_segment(
     )
 
 
+def _load_omniasr_ctc_model(model_id: str) -> Tuple[Any, Any]:
+    """Load Meta OmniASR model using remapped Wav2Vec2ForCTC architecture and LasrTokenizer."""
+    from huggingface_hub import snapshot_download
+    from safetensors.torch import load_file
+    from transformers import LasrTokenizer, Wav2Vec2Config, Wav2Vec2ForCTC
+
+    local_path = snapshot_download(model_id)
+    tokenizer = LasrTokenizer.from_pretrained(local_path)
+    cfg = Wav2Vec2Config(
+        vocab_size=10288,
+        hidden_size=1024,
+        num_hidden_layers=24,
+        num_attention_heads=16,
+        intermediate_size=4096,
+        conv_dim=[512, 512, 512, 512, 512, 512, 512],
+        conv_stride=[5, 2, 2, 2, 2, 2, 2],
+        conv_kernel=[10, 3, 3, 3, 3, 2, 2],
+        feat_extract_norm="layer",
+        feat_proj_dropout=0.0,
+        layer_norm_eps=1e-5,
+    )
+    model = Wav2Vec2ForCTC(cfg)
+    sd = load_file(os.path.join(local_path, "model.safetensors"))
+    remapped = {}
+    for k, v in sd.items():
+        nk = f"wav2vec2.{k[8:]}" if k.startswith("encoder.") else (f"lm_head.{k[9:]}" if k.startswith("ctc_head.") else k)
+        remapped[nk] = v
+    model.load_state_dict(remapped, strict=False)
+    return model, tokenizer
+
+
 class TransformersCTCEngine(BaseTranscriber):
-    """Acoustic CTC ASR engine supporting Wav2Vec2 and Meta MMS architectures."""
+    """Acoustic CTC ASR engine supporting Wav2Vec2, Meta MMS and Meta OmniASR architectures."""
 
     def __init__(
         self,
@@ -156,14 +197,15 @@ class TransformersCTCEngine(BaseTranscriber):
             return
 
         try:
-            from transformers import AutoModelForCTC, Wav2Vec2Processor
-            try:
-                self._processor = Wav2Vec2Processor.from_pretrained(self.resolved_model_id)
-            except Exception:
-                from transformers import AutoProcessor
-                self._processor = AutoProcessor.from_pretrained(self.resolved_model_id)
-
-            self._model = AutoModelForCTC.from_pretrained(self.resolved_model_id)
+            if "omniasr" in self.resolved_model_id.lower():
+                self._model, self._processor = _load_omniasr_ctc_model(self.resolved_model_id)
+            else:
+                from transformers import AutoModelForCTC, AutoProcessor, Wav2Vec2Processor
+                try:
+                    self._processor = Wav2Vec2Processor.from_pretrained(self.resolved_model_id)
+                except Exception:
+                    self._processor = AutoProcessor.from_pretrained(self.resolved_model_id)
+                self._model = AutoModelForCTC.from_pretrained(self.resolved_model_id)
 
             if self.device == "cuda":
                 import torch

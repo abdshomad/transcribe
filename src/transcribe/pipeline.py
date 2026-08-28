@@ -6,8 +6,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from .models import SpeakerSegment, TranscriptionResult, TranscriptSegment
-from .audio import get_audio_info
-from .downloader import is_url, download_url
+from .audio import get_audio_info, convert_to_wav_16k
+from .downloader import is_url, download_url, is_gdrive_folder, is_google_doc
 from .engines.factory import get_transcriber
 from .transcriber import FasterWhisperTranscriber
 from .diarizer import PyAnnoteDiarizer
@@ -15,23 +15,14 @@ from .aligner import align_transcription_and_diarization
 from .exporters import export_json, export_srt, export_vtt, export_txt, export_md
 
 
-def convert_slice_to_wav_16k(input_path: str, output_path: str, start_offset: float = 0.0) -> str:
-    """Convert audio to 16kHz mono WAV, optionally seeking from start_offset."""
-    cmd = ["ffmpeg", "-y"]
-    if start_offset > 0:
-        cmd.extend(["-ss", str(start_offset)])
-    cmd.extend([
-        "-i", input_path,
-        "-vn",
-        "-acodec", "pcm_s16le",
-        "-ar", "16000",
-        "-ac", "1",
-        output_path,
-    ])
-    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if res.returncode != 0:
-        raise RuntimeError(f"FFmpeg conversion failed: {res.stderr.decode('utf-8', errors='ignore')}")
-    return output_path
+def convert_slice_to_wav_16k(
+    input_path: str,
+    output_path: str,
+    start_offset: float = 0.0,
+    on_progress: Optional[Callable[[dict], None]] = None,
+) -> str:
+    """Convert audio to 16kHz mono WAV with optional seek offset and live progress."""
+    return convert_to_wav_16k(input_path, output_path, start_offset=start_offset, on_progress=on_progress)
 
 
 def _prepare_pipeline_audio(
@@ -42,8 +33,27 @@ def _prepare_pipeline_audio(
 ) -> Tuple[str, str, float]:
     """Resolve download, normalize 16kHz WAV, and generate slice if resuming."""
     if is_url(source_str):
-        def dl_cb(pct, speed_mb=0.0):
+        if is_google_doc(source_str):
+            raise ValueError(
+                "The provided URL points to a Google Docs/Sheets text document (such as Gemini meeting notes), "
+                "not an audio or video recording file. Please provide a direct audio file link or Drive folder link."
+            )
+        if is_gdrive_folder(source_str):
+            raise ValueError(
+                "The provided URL is a Google Drive folder link, not a direct single audio file. "
+                "To transcribe all recordings in this folder, use batch mode (`transcribe run <url>`)."
+            )
+
+        def dl_cb(*args, **kwargs):
             if on_progress:
+                pct = 0.0
+                speed_mb = 0.0
+                if len(args) >= 3:
+                    pct = args[2]
+                elif len(args) >= 1:
+                    pct = args[0]
+                if len(args) >= 4:
+                    speed_mb = args[3]
                 on_progress({
                     "stage": "downloading",
                     "percent": pct,
@@ -53,19 +63,13 @@ def _prepare_pipeline_audio(
     else:
         local_audio_path = source_str
 
-    if on_progress:
-        on_progress({
-            "stage": "audio_prep",
-            "message": "⚙️ Normalizing audio (16kHz PCM WAV)...",
-        })
-
     temp_full_wav = os.path.join(tmpdir, "full_16k.wav")
-    convert_slice_to_wav_16k(local_audio_path, temp_full_wav, start_offset=0.0)
+    convert_slice_to_wav_16k(local_audio_path, temp_full_wav, start_offset=0.0, on_progress=on_progress)
     total_duration, _, _ = get_audio_info(temp_full_wav)
 
     temp_slice_wav = os.path.join(tmpdir, "slice_16k.wav")
     if start_offset > 0:
-        convert_slice_to_wav_16k(local_audio_path, temp_slice_wav, start_offset=start_offset)
+        convert_slice_to_wav_16k(local_audio_path, temp_slice_wav, start_offset=start_offset, on_progress=on_progress)
     else:
         temp_slice_wav = temp_full_wav
 
@@ -101,16 +105,18 @@ class AudioTranscriptionPipeline:
     def __init__(
         self,
         whisper_model_size: str = "base",
+        model_name: Optional[str] = None,
         hf_token: Optional[str] = None,
         device: str = "auto",
         compute_type: str = "default",
         enable_diarization: bool = True,
         **kwargs: Any,
     ):
+        chosen_model = model_name or kwargs.pop("model_name", None) or whisper_model_size
         self.device = device
         self.enable_diarization = enable_diarization
         self.transcriber = get_transcriber(
-            model_name=whisper_model_size,
+            model_name=chosen_model,
             device=device,
             compute_type=compute_type,
             **kwargs,
@@ -213,6 +219,8 @@ class AudioTranscriptionPipeline:
         language: Optional[str] = None,
         num_speakers: Optional[int] = None,
         start_offset: float = 0.0,
+        existing_segments: Optional[List[TranscriptSegment]] = None,
+        output_stem: Optional[str] = None,
         on_segment: Optional[Callable[[TranscriptSegment], None]] = None,
         on_progress: Optional[Callable[[dict], None]] = None,
     ) -> dict[str, str]:
@@ -223,13 +231,14 @@ class AudioTranscriptionPipeline:
             language=language,
             num_speakers=num_speakers,
             start_offset=start_offset,
+            existing_segments=existing_segments,
             on_segment=on_segment,
             on_progress=on_progress,
         )
 
         out_path = Path(output_dir)
         out_path.mkdir(parents=True, exist_ok=True)
-        stem = Path(str(audio_path_or_url)).stem or "transcript"
+        stem = output_stem or Path(str(audio_path_or_url)).stem or "transcript"
 
         exported_files = {}
         for fmt in formats:

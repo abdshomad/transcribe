@@ -208,6 +208,29 @@ HTML_PAGE = r"""<!DOCTYPE html>
     </div>
   </main>
 
+  <!-- HARD TOKEN GATE / LOCK SCREEN -->
+  <div id="token-gate" class="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 text-center">
+      <div class="w-16 h-16 bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mx-auto text-3xl shadow-inner">
+        🔒
+      </div>
+      <div>
+        <h2 class="text-xl font-bold text-slate-800 dark:text-slate-100">Site Protected</h2>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Please enter your authorized access token to unlock the AI Transcription dashboard.</p>
+      </div>
+      <div class="space-y-3 text-left">
+        <div>
+          <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Access Token</label>
+          <input type="password" id="gate-token-input" placeholder="Enter Token" class="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all font-mono" />
+        </div>
+        <p id="gate-error-msg" class="text-xs text-rose-500 hidden font-medium text-center">Invalid access token. Please try again.</p>
+        <button id="btn-unlock-gate" class="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white font-semibold py-2.5 rounded-xl text-sm transition-all shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2">
+          <span>Unlock Dashboard</span> <span>➜</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- TOKEN MODAL -->
   <div id="token-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
     <div class="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
@@ -368,6 +391,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
     const progressBox = document.getElementById('progress-box'), progressStageText = document.getElementById('progress-stage-text'), progressStatus = document.getElementById('progress-status'), progressBar = document.getElementById('progress-bar'), spinner = document.getElementById('spinner');
     const renameBar = document.getElementById('speaker-rename-bar'), speakerInputs = document.getElementById('speaker-inputs'), speakerCount = document.getElementById('speaker-count');
     const tokenModal = document.getElementById('token-modal'), tokenInput = document.getElementById('token-input'), tokenLabel = document.getElementById('token-label');
+    const tokenGate = document.getElementById('token-gate'), gateTokenInput = document.getElementById('gate-token-input'), gateErrorMsg = document.getElementById('gate-error-msg'), btnUnlockGate = document.getElementById('btn-unlock-gate');
     const toast = document.getElementById('toast'), toastMsg = document.getElementById('toast-msg');
     let allModelsCatalog = [];
 
@@ -385,16 +409,79 @@ HTML_PAGE = r"""<!DOCTYPE html>
     function updateTokenUI() {
       tokenLabel.textContent = appToken ? '🔑 Token: ••••••••' : '🔑 Set Token';
     }
+
+    async function verifyAndApplyToken(candidateToken) {
+      if (!candidateToken) return false;
+      try {
+        const res = await fetch(`/api/auth/verify?token=${encodeURIComponent(candidateToken)}`);
+        if (res.ok) {
+          appToken = candidateToken;
+          localStorage.appToken = appToken;
+          updateTokenUI();
+          tokenGate.classList.add('hidden');
+          gateErrorMsg.classList.add('hidden');
+          loadHistory(true);
+          loadModelCatalog();
+          return true;
+        }
+      } catch (e) {
+        console.error('Token verification error:', e);
+      }
+      return false;
+    }
+
+    async function handleUnlockGate() {
+      const entered = gateTokenInput.value.trim();
+      if (!entered) {
+        gateErrorMsg.textContent = 'Please enter an access token.';
+        gateErrorMsg.classList.remove('hidden');
+        return;
+      }
+      btnUnlockGate.disabled = true;
+      btnUnlockGate.innerHTML = '<span>Verifying...</span>';
+      const success = await verifyAndApplyToken(entered);
+      btnUnlockGate.disabled = false;
+      btnUnlockGate.innerHTML = '<span>Unlock Dashboard</span> <span>➜</span>';
+      if (!success) {
+        gateErrorMsg.textContent = 'Invalid access token. Please try again.';
+        gateErrorMsg.classList.remove('hidden');
+        gateTokenInput.classList.add('border-rose-500');
+        setTimeout(() => gateTokenInput.classList.remove('border-rose-500'), 2000);
+      } else {
+        showToast('Access Granted');
+      }
+    }
+
+    btnUnlockGate.onclick = handleUnlockGate;
+    gateTokenInput.onkeydown = (e) => { if (e.key === 'Enter') handleUnlockGate(); };
+
     document.getElementById('btn-token-modal').onclick = () => { tokenInput.value = appToken; tokenModal.classList.remove('hidden'); };
     document.getElementById('btn-close-token').onclick = () => tokenModal.classList.add('hidden');
-    document.getElementById('btn-save-token').onclick = () => {
-      appToken = tokenInput.value.trim();
-      localStorage.appToken = appToken;
-      updateTokenUI(); tokenModal.classList.add('hidden'); showToast('Token saved');
-      if (appToken) loadHistory(true);
+    document.getElementById('btn-save-token').onclick = async () => {
+      const candidate = tokenInput.value.trim();
+      const ok = await verifyAndApplyToken(candidate);
+      if (ok) {
+        tokenModal.classList.add('hidden');
+        showToast('Token updated');
+      } else {
+        showToast('Invalid token');
+      }
     };
-    updateTokenUI();
-    if (appToken) loadHistory(true);
+
+    // Initial auth gate verification
+    (async function initAuth() {
+      const stored = localStorage.appToken;
+      if (stored) {
+        const valid = await verifyAndApplyToken(stored);
+        if (!valid) {
+          localStorage.removeItem('appToken');
+          appToken = '';
+          tokenGate.classList.remove('hidden');
+        }
+      } else {
+        tokenGate.classList.remove('hidden');
+      }
+    })();
 
     async function loadModelCatalog() {
       try {
@@ -508,6 +595,12 @@ HTML_PAGE = r"""<!DOCTYPE html>
             <label class="block font-medium text-slate-700 dark:text-slate-300 mb-1">MMS Target Adapter Code</label>
             <input type="text" id="knob-mms-lang" placeholder="e.g. ind, eng, fra, spa, jav" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-800 dark:text-slate-200">
           </div>`;
+      } else if (fam.includes('OmniASR')) {
+        adaptiveKnobs.innerHTML = `
+          <div class="flex items-center justify-between text-indigo-600 dark:text-indigo-400 font-medium">
+            <span>🌐 1,600+ Languages Acoustic CTC</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20">Omnilingual ASR</span>
+          </div>`;
       } else if (fam.includes('CTC') || fam.includes('Wav2Vec2')) {
         adaptiveKnobs.innerHTML = `
           <div class="flex items-center justify-between">
@@ -525,6 +618,74 @@ HTML_PAGE = r"""<!DOCTYPE html>
             <span>⚡ Zero-Overhead ONNX Runtime</span>
             <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20">Edge Optimized</span>
           </div>`;
+      } else if (fam.includes('FireRed')) {
+        const isLlm = (modelObj.name || '').includes('llm') || (modelObj.name || '').includes('9b');
+        if (isLlm) {
+          adaptiveKnobs.innerHTML = `
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-slate-700 dark:text-slate-300">Temperature</span>
+              <input type="number" id="knob-temperature" min="0.0" max="1.0" step="0.1" value="0.0" class="w-16 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-800 dark:text-slate-200">
+            </div>
+            <div class="flex items-center gap-1.5 pt-1 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+              <span>🔥 Qwen2-7B LLM Speech Interaction</span>
+            </div>`;
+        } else {
+          adaptiveKnobs.innerHTML = `
+            <div class="flex items-center justify-between">
+              <span class="font-medium text-slate-700 dark:text-slate-300">Beam Search Size</span>
+              <select id="knob-beam-size" class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-0.5 text-xs text-slate-800 dark:text-slate-200">
+                <option value="1">1 (Greedy / Fast)</option>
+                <option value="3">3</option>
+                <option value="5" selected>5 (Standard)</option>
+                <option value="10">10 (Accurate)</option>
+              </select>
+            </div>
+            <div class="flex items-center gap-1.5 pt-1 text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
+              <span>🔥 Industrial Conformer-AED Speech Recognition</span>
+            </div>`;
+        }
+      } else if (fam.includes('VoiceMem')) {
+        adaptiveKnobs.innerHTML = `
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-medium text-slate-700 dark:text-slate-300">Dual-Brain Cognition</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20">Active</span>
+          </div>
+          <div class="flex items-center gap-1.5 pt-1 text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
+            <span>🧠 Emotion (SER) + Voiceprint + Factual Memory</span>
+          </div>`;
+      } else if (fam.includes('Whisper.cpp')) {
+        adaptiveKnobs.innerHTML = `
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-medium text-slate-700 dark:text-slate-300">CPU SIMD Threads</span>
+            <input type="number" id="knob-threads" min="1" max="32" value="4" class="w-14 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-800 dark:text-slate-200">
+          </div>
+          <div class="flex items-center gap-1.5 pt-1 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+            <span>⚡ High-Efficiency GGML / GGUF C++ Engine</span>
+          </div>`;
+      } else if (fam.includes('NVIDIA') || fam.includes('NeMo')) {
+        const isAudex = (modelObj.name || '').includes('audex');
+        if (isAudex) {
+          adaptiveKnobs.innerHTML = `
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-slate-700 dark:text-slate-300">Execution Mode</span>
+              <select id="knob-audex-mode" class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-2 py-0.5 text-xs text-slate-800 dark:text-slate-200">
+                <option value="instruct" selected>⚡ Instruct Mode (Verbatim ASR)</option>
+                <option value="thinking">🤔 Thinking Mode (Reasoning)</option>
+              </select>
+            </div>
+            <div class="flex items-center gap-1.5 pt-1 text-[11px] text-teal-600 dark:text-teal-400 font-medium">
+              <span>🧠 2B Compact Unified Audio-Text LLM</span>
+            </div>`;
+        } else {
+          adaptiveKnobs.innerHTML = `
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-slate-700 dark:text-slate-300">Fast-Conformer TDT</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20">ONNX Ready</span>
+            </div>
+            <div class="flex items-center gap-1.5 pt-1 text-[11px] text-teal-600 dark:text-teal-400 font-medium">
+              <span>🦅 NVIDIA Parakeet / Nemotron Low-Latency ASR</span>
+            </div>`;
+        }
       } else {
         adaptiveKnobs.innerHTML = `<span class="text-slate-400">Standard inference settings active.</span>`;
       }
@@ -711,6 +872,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
       if (chunkInput) formData.append('chunk_length_s', chunkInput.value);
       const mmsLangInput = document.getElementById('knob-mms-lang');
       if (mmsLangInput && mmsLangInput.value.trim()) formData.append('target_lang', mmsLangInput.value.trim());
+      const tempInput = document.getElementById('knob-temperature');
+      if (tempInput) formData.append('temperature', tempInput.value);
 
       if (isResume && currentJobId) {
         formData.append('resume_job_id', currentJobId);
@@ -746,7 +909,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
       try {
         const response = await fetch(`/api/transcribe-stream?token=${encodeURIComponent(appToken)}`, { method: 'POST', headers: authHeaders(), body: formData });
-        if (response.status === 401) { tokenModal.classList.remove('hidden'); throw new Error('Unauthorized: Invalid Token'); }
+        if (response.status === 401) { tokenGate.classList.remove('hidden'); localStorage.removeItem('appToken'); appToken = ''; throw new Error('Unauthorized: Invalid Token'); }
         if (!response.ok) { const errText = await response.text(); throw new Error(errText || `Server error ${response.status}`); }
         const reader = response.body.getReader(), decoder = new TextDecoder('utf-8');
         let buffer = '';
@@ -885,7 +1048,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
       }
       try {
         const res = await fetch(`/api/sources?token=${encodeURIComponent(appToken)}`, { headers: authHeaders() });
-        if (res.status === 401) { if (!silent) tokenModal.classList.remove('hidden'); return; }
+        if (res.status === 401) { if (!silent) { tokenGate.classList.remove('hidden'); localStorage.removeItem('appToken'); appToken = ''; } return; }
         const sources = await res.json();
         historyCache = sources;
         compareSourcesData = sources;

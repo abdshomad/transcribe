@@ -9,12 +9,16 @@ from .models import SpeakerSegment
 def _read_hf_token() -> Optional[str]:
     """Look for HF token in environment or local secrets file."""
     if token := os.getenv("HF_TOKEN"):
+        os.environ["HUGGING_FACE_HUB_TOKEN"] = token
         return token
     secrets_path = Path(".secrets")
     if secrets_path.exists():
         for line in secrets_path.read_text().splitlines():
             if line.startswith("HF_TOKEN="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
+                token_val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                os.environ["HF_TOKEN"] = token_val
+                os.environ["HUGGING_FACE_HUB_TOKEN"] = token_val
+                return token_val
     return None
 
 
@@ -89,9 +93,10 @@ class PyAnnoteDiarizer:
             params["max_speakers"] = max_speakers
 
         diarization = pipeline(audio_path, **params)
+        annotation = getattr(diarization, "speaker_diarization", diarization)
 
         speaker_segments: List[SpeakerSegment] = []
-        for turn, _, speaker in diarization.itertracks(yield_label=True):
+        for turn, _, speaker in annotation.itertracks(yield_label=True):
             speaker_segments.append(
                 SpeakerSegment(
                     speaker=speaker,

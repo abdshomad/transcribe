@@ -116,8 +116,20 @@ def _check_hf_cache(name: str) -> bool:
     return False
 
 
+def _check_modelscope_cache(name: str) -> bool:
+    """Check if model exists in local ModelScope cache."""
+    ms_cache_dir = Path(os.path.expanduser("~/.cache/modelscope/hub"))
+    if not ms_cache_dir.exists():
+        return False
+    target = name.lower().replace("-", "").replace("_", "")
+    for entry in ms_cache_dir.glob("*/*"):
+        if target in entry.name.lower().replace("-", "").replace("_", ""):
+            return True
+    return False
+
+
 def check_model_cached(name: str) -> bool:
-    """Check if model weights exist in local data/models directory or Hugging Face cache."""
+    """Check if model weights exist in local data/models directory, Hugging Face or ModelScope cache."""
     candidates = [
         Path("data/models") / name,
         Path("data/models") / f"{name}-ct2",
@@ -126,7 +138,7 @@ def check_model_cached(name: str) -> bool:
     ]
     if any(_is_dir_non_empty(p) for p in candidates):
         return True
-    return _check_hf_cache(name)
+    return _check_hf_cache(name) or _check_modelscope_cache(name)
 
 
 MODEL_CATALOG: List[ASRModelInfo] = [
@@ -160,6 +172,30 @@ MODEL_CATALOG: List[ASRModelInfo] = [
     ASRModelInfo(name="moonshine-base", family="UsefulSensors Moonshine", display_name="Moonshine Base Edge", params="61M", vram="~2 GB", speed_factor="~10x", languages="English Only", description="UsefulSensors/moonshine-base accurate edge ONNX model", capabilities=["local", "edge", "onnx"]),
     ASRModelInfo(name="sensevoice-small", family="Alibaba SenseVoice", display_name="SenseVoice-Small", params="230M", vram="~1.5 GB", speed_factor="~50x", languages="ZH / EN / JA / KO / YUE", description="FunAudioLLM/SenseVoiceSmall rich audio transcription (50x real-time) with SER & AED", capabilities=["local", "gpu", "ser", "aed"]),
     ASRModelInfo(name="meta-omnilingual-asr", family="Meta MMS", display_name="Meta MMS-1B Omnilingual", params="1B", vram="~2 GB", speed_factor="~8x", languages="Multilingual (100+)", description="facebook/mms-1b-all universal speech recognition with adapter switching", capabilities=["local", "gpu", "ctc", "mms"]),
+    ASRModelInfo(name="meta-mms-1b-fl102", family="Meta MMS", display_name="Meta MMS-1B FLORES-102", params="1B", vram="~2 GB", speed_factor="~8x", languages="Top 102 World Langs", description="facebook/mms-1b-fl102 optimized for 102 major languages", capabilities=["local", "gpu", "ctc", "mms"]),
+    ASRModelInfo(name="meta-mms-300m", family="Meta MMS", display_name="Meta MMS-300M Edge", params="300M", vram="~800 MB", speed_factor="~15x", languages="Multilingual (1400+)", description="facebook/mms-300m-1400 lightweight multilingual acoustic CTC model", capabilities=["local", "gpu", "ctc", "mms"]),
+    ASRModelInfo(name="omniasr-ctc-300m", family="Meta OmniASR", display_name="OmniASR CTC 300M (1600+)", params="300M", vram="~1 GB", speed_factor="~18x", languages="Multilingual (1600+)", description="Meta Omnilingual ASR (bezzam/omniasr-ctc-300m-v2) supporting 1600+ languages", capabilities=["local", "gpu", "ctc"]),
+    ASRModelInfo(name="omniasr-ctc-1b", family="Meta OmniASR", display_name="OmniASR CTC 1B (1600+)", params="1B", vram="~2.5 GB", speed_factor="~10x", languages="Multilingual (1600+)", description="Meta Omnilingual ASR (bezzam/omniasr-ctc-1b-v2) 1B parameter flagship", capabilities=["local", "gpu", "ctc"]),
+    # FireRed Team Industrial ASR & Audio-LLM
+    ASRModelInfo(name="fireredasr-aed-l", family="FireRed Team", display_name="FireRedASR AED Large", params="1.1B", vram="~2 GB", speed_factor="~15x", languages="Mandarin / Dialects / EN", description="FireRedTeam/FireRedASR-AED-L industrial Conformer-AED speech recognition", capabilities=["local", "gpu", "aed"]),
+    ASRModelInfo(name="fireredasr-llm-l", family="FireRed Team", display_name="FireRedASR LLM Large", params="7.8B", vram="~8 GB", speed_factor="~5x", languages="Mandarin / Dialects / EN", description="FireRedTeam/FireRedASR-LLM-L Qwen2-7B encoder-adapter-LLM speech interaction", capabilities=["local", "gpu", "llm"]),
+    ASRModelInfo(name="fireredaudio-9b", family="FireRed Team", display_name="FireRedAudio 9B", params="9B", vram="~10 GB", speed_factor="~4x", languages="Multilingual / Audio Q&A", description="FireRedTeam/FireRedAudio unified 9B audio-language foundation model", capabilities=["local", "gpu", "llm", "multimodal"]),
+    # Tsinghua VoiceMem Dual-Brain Cognitive Voice Memory
+    ASRModelInfo(name="voicemem-normal", family="Tsinghua VoiceMem", display_name="VoiceMem Normal (SER+Voiceprint)", params="Dual-Brain", vram="~2.5 GB", speed_factor="~20x", languages="Multilingual", description="Tsinghua xzf-thu/VoiceMem cognitive voice memory & emotion perception", capabilities=["local", "gpu", "ser", "memory"]),
+    ASRModelInfo(name="voicemem-realtime", family="Tsinghua VoiceMem", display_name="VoiceMem Streaming Realtime", params="Dual-Brain", vram="~2.5 GB", speed_factor="~30x", languages="Multilingual", description="Tsinghua xzf-thu/VoiceMem low-latency (~134ms) streaming voice memory", capabilities=["local", "gpu", "ser", "memory", "streaming"]),
+    # Whisper.cpp (GGML / GGUF High-Efficiency C++ Engine)
+    ASRModelInfo(name="whispercpp-tiny", family="Whisper.cpp (GGML)", display_name="Whisper.cpp Tiny (GGML)", params="39M", vram="~100 MB", speed_factor="~35x", languages="Multilingual (99+)", description="Whisper.cpp ultra-lightweight GGML quantized runtime", capabilities=["local", "cpu", "ggml", "edge"]),
+    ASRModelInfo(name="whispercpp-base", family="Whisper.cpp (GGML)", display_name="Whisper.cpp Base (GGML)", params="74M", vram="~200 MB", speed_factor="~25x", languages="Multilingual (99+)", description="Whisper.cpp base GGML runtime with multi-threaded CPU SIMD", capabilities=["local", "cpu", "ggml", "edge"]),
+    ASRModelInfo(name="whispercpp-small", family="Whisper.cpp (GGML)", display_name="Whisper.cpp Small (GGML)", params="244M", vram="~600 MB", speed_factor="~15x", languages="Multilingual (99+)", description="Whisper.cpp small GGML runtime for balance of speed and precision", capabilities=["local", "cpu", "ggml"]),
+    ASRModelInfo(name="whispercpp-medium", family="Whisper.cpp (GGML)", display_name="Whisper.cpp Medium (GGML)", params="769M", vram="~1.5 GB", speed_factor="~8x", languages="Multilingual (99+)", description="Whisper.cpp medium GGML runtime", capabilities=["local", "cpu", "ggml"]),
+    ASRModelInfo(name="whispercpp-turbo", family="Whisper.cpp (GGML)", display_name="Whisper.cpp Turbo (GGML)", params="809M", vram="~1.5 GB", speed_factor="~12x", languages="Multilingual (99+)", description="Whisper.cpp large-v3-turbo GGML runtime", capabilities=["local", "cpu", "ggml"]),
+    ASRModelInfo(name="whispercpp-large-v3", family="Whisper.cpp (GGML)", display_name="Whisper.cpp Large-v3 (GGML)", params="1550M", vram="~3.0 GB", speed_factor="~5x", languages="Multilingual (99+)", description="Whisper.cpp flagship large-v3 GGML runtime", capabilities=["local", "cpu", "ggml"]),
+    # NVIDIA NeMo / Parakeet & Nemotron Speech Family
+    ASRModelInfo(name="nvidia-parakeet-tdt-1.1b", family="NVIDIA NeMo", display_name="NVIDIA Parakeet-TDT 1.1B", params="1.1B", vram="~2.5 GB", speed_factor="~25x", languages="English (en)", description="NVIDIA Fast-Conformer Transducer (TDT) high-accuracy conversational ASR", capabilities=["local", "gpu", "tdt", "nemo"]),
+    ASRModelInfo(name="nvidia-parakeet-tdt-0.6b", family="NVIDIA NeMo", display_name="NVIDIA Parakeet-TDT 0.6B", params="600M", vram="~1.5 GB", speed_factor="~35x", languages="English (en)", description="NVIDIA Fast-Conformer Transducer (TDT) lightweight streaming ASR", capabilities=["local", "gpu", "tdt", "nemo"]),
+    ASRModelInfo(name="nvidia-parakeet-ctc-1.1b", family="NVIDIA NeMo", display_name="NVIDIA Parakeet-CTC 1.1B", params="1.1B", vram="~2.5 GB", speed_factor="~25x", languages="English (en)", description="NVIDIA Fast-Conformer CTC 1.1B speech recognition model", capabilities=["local", "gpu", "ctc", "nemo"]),
+    ASRModelInfo(name="nvidia-nemotron-speech-3.5", family="NVIDIA NeMo", display_name="NVIDIA Nemotron Speech 3.5", params="3.5B", vram="~5.0 GB", speed_factor="~15x", languages="English / Multilingual", description="NVIDIA Nemotron Speech 3.5 cache-aware real-time streaming ASR", capabilities=["local", "gpu", "streaming", "nemo"]),
+    ASRModelInfo(name="nemotron-audex-2b", family="NVIDIA NeMo", display_name="NVIDIA Audex-2B Audio-LLM", params="2B", vram="~4.5 GB", speed_factor="~10x", languages="English / Multilingual", description="NVIDIA Nemotron-Labs-Audex-2B compact unified audio-text LLM (Thinking & Instruct)", capabilities=["local", "gpu", "llm", "multimodal", "nemo"]),
 ]
 
 CLOUD_MODEL_CATALOG: List[ASRModelInfo] = [

@@ -33,11 +33,41 @@ DEFAULT_ENGINE_MAPPINGS: Dict[str, str] = {
     "indonesian-wav2vec2-regional": "transcribe.engines.transformers_ctc.TransformersCTCEngine",
     "indonesian-wav2vec2-large-xlsr": "transcribe.engines.transformers_ctc.TransformersCTCEngine",
     "meta-omnilingual-asr": "transcribe.engines.transformers_ctc.TransformersCTCEngine",
+    "meta-mms-1b-all": "transcribe.engines.transformers_ctc.TransformersCTCEngine",
+    "meta-mms-1b-fl102": "transcribe.engines.transformers_ctc.TransformersCTCEngine",
+    "meta-mms-300m": "transcribe.engines.transformers_ctc.TransformersCTCEngine",
+    "omniasr-ctc-300m": "transcribe.engines.transformers_ctc.TransformersCTCEngine",
+    "omniasr-ctc-1b": "transcribe.engines.transformers_ctc.TransformersCTCEngine",
     # Alibaba FunAudioLLM SenseVoice
     "sensevoice-small": "transcribe.engines.sensevoice.SenseVoiceEngine",
     # UsefulSensors Moonshine ONNX
     "moonshine-tiny": "transcribe.engines.moonshine.MoonshineEngine",
     "moonshine-base": "transcribe.engines.moonshine.MoonshineEngine",
+    # FireRed Team ASR & Audio-LLM
+    "fireredasr-aed-l": "transcribe.engines.firered.FireRedTranscriber",
+    "fireredasr-llm-l": "transcribe.engines.firered.FireRedTranscriber",
+    "fireredaudio-9b": "transcribe.engines.firered.FireRedTranscriber",
+    # Tsinghua VoiceMem Cognitive Audio Perception
+    "voicemem-normal": "transcribe.engines.voicemem_engine.VoiceMemTranscriber",
+    "voicemem-realtime": "transcribe.engines.voicemem_engine.VoiceMemTranscriber",
+    # Whisper.cpp GGML/GGUF Engine
+    "whispercpp-tiny": "transcribe.engines.whisper_cpp.WhisperCppTranscriber",
+    "whispercpp-base": "transcribe.engines.whisper_cpp.WhisperCppTranscriber",
+    "whispercpp-small": "transcribe.engines.whisper_cpp.WhisperCppTranscriber",
+    "whispercpp-medium": "transcribe.engines.whisper_cpp.WhisperCppTranscriber",
+    "whispercpp-turbo": "transcribe.engines.whisper_cpp.WhisperCppTranscriber",
+    "whispercpp-large-v3": "transcribe.engines.whisper_cpp.WhisperCppTranscriber",
+    # NVIDIA NeMo & Parakeet Speech Engine
+    "nvidia-parakeet-tdt-1.1b": "transcribe.engines.nemo_engine.SherpaNemoTranscriber",
+    "parakeet-tdt-1.1b": "transcribe.engines.nemo_engine.SherpaNemoTranscriber",
+    "nvidia-parakeet-tdt-0.6b": "transcribe.engines.nemo_engine.SherpaNemoTranscriber",
+    "parakeet-tdt-0.6b": "transcribe.engines.nemo_engine.SherpaNemoTranscriber",
+    "nvidia-parakeet-ctc-1.1b": "transcribe.engines.nemo_engine.SherpaNemoTranscriber",
+    "nvidia-nemotron-speech-3.5": "transcribe.engines.nemo_engine.SherpaNemoTranscriber",
+    "nemotron-speech-3.5": "transcribe.engines.nemo_engine.SherpaNemoTranscriber",
+    # NVIDIA Nemotron-Labs-Audex-2B Audio-LLM
+    "nemotron-audex-2b": "transcribe.engines.audex_engine.AudexTranscriber",
+    "nvidia-audex-2b": "transcribe.engines.audex_engine.AudexTranscriber",
 }
 
 
