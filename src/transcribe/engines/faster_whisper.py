@@ -65,6 +65,7 @@ class FasterWhisperEngine(BaseTranscriber):
         segments_generator, info = self.model.transcribe(
             audio_path,
             language=effective_lang,
+            task="transcribe",
             beam_size=beam_size,
             word_timestamps=True,
             vad_filter=vad_filter,

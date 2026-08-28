@@ -12,6 +12,11 @@ from .models import TranscriptSegment, MODEL_CATALOG, TranscriptionResult, Diari
 from .youtube import is_youtube_url, fetch_youtube_transcript
 from .exporters import export_transcription
 from .history import save_history, find_checkpoint
+from .merger import (
+    sort_media_files_by_sequence,
+    combine_transcription_results,
+    export_all_combined_formats,
+)
 
 app = typer.Typer(
     name="transcribe",
@@ -161,7 +166,86 @@ def _run_single_file(
         processing_time=round(elapsed, 2),
         audio_path=audio_source,
     )
-    return exported
+    return exported, res
+
+
+def _handle_batch_combination(
+    results_with_metadata: List[tuple[str, TranscriptionResult]],
+    folder_title: str,
+    safe_folder: str,
+    model: str,
+    model_suffix: bool,
+    batch_output_dir: Path,
+    formats: List[str],
+    pipeline: AudioTranscriptionPipeline,
+    audio_source: str,
+) -> None:
+    """Stitch sequential parts into unified continuous transcript and register in history."""
+    console.print("\n[bold cyan]🧩 Stitching continuous folder transcription across sequence...[/bold cyan]")
+    try:
+        combined_res = combine_transcription_results(results_with_metadata, folder_title)
+        comb_stem = f"{safe_folder}_combined_{model}" if model_suffix else f"{safe_folder}_combined"
+        comb_exported = export_all_combined_formats(combined_res, batch_output_dir, comb_stem, formats, folder_title)
+
+        job_id = f"cli_combined_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        total_proc_time = sum(getattr(r, "processing_time", 0.0) or 0.0 for _, r in results_with_metadata)
+        save_history(
+            job_id=job_id,
+            source_name=folder_title,
+            model=pipeline.transcriber.model_name,
+            result_data=combined_res.model_dump(),
+            status="completed",
+            last_processed_time=combined_res.duration,
+            processing_time=round(total_proc_time, 2) if total_proc_time else round(combined_res.duration, 2),
+            audio_path=audio_source,
+        )
+        _render_files_table({k: str(v) for k, v in comb_exported.items()}, title="🧩 Unified Continuous Transcript Files")
+    except Exception as e:
+        console.print(f"[bold yellow]⚠️ Notice: Could not combine folder results: {e}[/bold yellow]")
+
+
+def _process_batch_items(
+    media_files: List[dict],
+    model: str,
+    model_suffix: bool,
+    pipeline: AudioTranscriptionPipeline,
+    batch_output_dir: Path,
+    formats: List[str],
+    language: Optional[str],
+    num_speakers: Optional[int],
+    force: bool,
+) -> tuple[List[tuple], List[tuple[str, TranscriptionResult]]]:
+    """Iterate through media files and transcribe each part."""
+    summary_rows: List[tuple] = []
+    results_with_metadata: List[tuple[str, TranscriptionResult]] = []
+    for idx, f in enumerate(media_files, start=1):
+        console.print(Panel.fit(
+            f"[bold white]Batch Item [{idx}/{len(media_files)}][/bold white]: [cyan]{f['name']}[/cyan] ([yellow]{model}[/yellow])",
+            border_style="blue",
+        ))
+        t0 = time.time()
+        base_stem = Path(f["name"]).stem or f["name"]
+        stem = f"{base_stem}_{model}" if model_suffix else base_stem
+        try:
+            _, res = _run_single_file(
+                pipeline=pipeline,
+                audio_source=f["url"],
+                display_name=f["name"],
+                output_dir=batch_output_dir,
+                formats=formats,
+                language=language,
+                num_speakers=num_speakers,
+                force=force,
+                output_stem=stem,
+            )
+            results_with_metadata.append((f["name"], res))
+            elapsed = time.time() - t0
+            summary_rows.append((idx, f["name"], "[green]Success[/green]", f"{elapsed:.1f}s"))
+        except Exception as e:
+            elapsed = time.time() - t0
+            console.print(f"[bold red]❌ Failed to transcribe '{f['name']}': {e}[/bold red]")
+            summary_rows.append((idx, f["name"], f"[red]Failed ({type(e).__name__})[/red]", f"{elapsed:.1f}s"))
+    return summary_rows, results_with_metadata
 
 
 def _run_gdrive_folder_batch(
@@ -176,15 +260,17 @@ def _run_gdrive_folder_batch(
     force: bool,
     yes: bool,
     model_suffix: bool = False,
+    combine: bool = True,
 ) -> None:
-    """Discover files in Google Drive folder, request confirmation, and process 1 by 1."""
+    """Discover files in Google Drive folder, sort by sequence, process and optionally stitch."""
     console.print("[bold cyan]🔍 Discovering audio recordings inside Google Drive folder...[/bold cyan]")
-    folder_title, media_files = fetch_gdrive_folder_contents(audio_source)
-    if not media_files:
+    folder_title, raw_files = fetch_gdrive_folder_contents(audio_source)
+    if not raw_files:
         console.print("[bold yellow]No audio/video recordings found in this Google Drive folder.[/bold yellow]")
         return
 
-    table = Table(title=f"📁 Discovered Files in: {folder_title}", border_style="cyan")
+    media_files = sort_media_files_by_sequence(raw_files)
+    table = Table(title=f"📁 Discovered & Sequenced Files in: {folder_title}", border_style="cyan")
     table.add_column("#", justify="center", style="bold cyan")
     table.add_column("Recording Name", style="bold yellow")
     table.add_column("File ID", style="magenta")
@@ -208,33 +294,17 @@ def _run_gdrive_folder_batch(
         enable_diarization=diarize,
     )
 
-    summary_rows = []
-    for idx, f in enumerate(media_files, start=1):
-        console.print(Panel.fit(
-            f"[bold white]Batch Item [{idx}/{len(media_files)}][/bold white]: [cyan]{f['name']}[/cyan] ([yellow]{model}[/yellow])",
-            border_style="blue",
-        ))
-        t0 = time.time()
-        base_stem = Path(f["name"]).stem or f["name"]
-        stem = f"{base_stem}_{model}" if model_suffix else base_stem
-        try:
-            _run_single_file(
-                pipeline=pipeline,
-                audio_source=f["url"],
-                display_name=f["name"],
-                output_dir=batch_output_dir,
-                formats=formats,
-                language=language,
-                num_speakers=num_speakers,
-                force=force,
-                output_stem=stem,
-            )
-            elapsed = time.time() - t0
-            summary_rows.append((idx, f["name"], "[green]Success[/green]", f"{elapsed:.1f}s"))
-        except Exception as e:
-            elapsed = time.time() - t0
-            console.print(f"[bold red]❌ Failed to transcribe '{f['name']}': {e}[/bold red]")
-            summary_rows.append((idx, f["name"], f"[red]Failed ({type(e).__name__})[/red]", f"{elapsed:.1f}s"))
+    summary_rows, results_with_metadata = _process_batch_items(
+        media_files=media_files,
+        model=model,
+        model_suffix=model_suffix,
+        pipeline=pipeline,
+        batch_output_dir=batch_output_dir,
+        formats=formats,
+        language=language,
+        num_speakers=num_speakers,
+        force=force,
+    )
 
     # Render final batch summary
     summary_table = Table(title="\n📊 Google Drive Batch Summary", border_style="green")
@@ -245,6 +315,20 @@ def _run_gdrive_folder_batch(
     for r in summary_rows:
         summary_table.add_row(str(r[0]), r[1], r[2], r[3])
     console.print(summary_table)
+
+    if combine and len(results_with_metadata) > 1:
+        _handle_batch_combination(
+            results_with_metadata=results_with_metadata,
+            folder_title=folder_title,
+            safe_folder=safe_folder,
+            model=model,
+            model_suffix=model_suffix,
+            batch_output_dir=batch_output_dir,
+            formats=formats,
+            pipeline=pipeline,
+            audio_source=audio_source,
+        )
+
     console.print(f"[bold green]✔ Batch complete! Results saved in: [cyan]{batch_output_dir}[/cyan][/bold green]\n")
 
 
@@ -261,6 +345,7 @@ def transcribe_cmd(
     force: bool = typer.Option(False, "--force", help="Force re-transcribe and record a fresh run in history"),
     yes: bool = typer.Option(True, "--yes/--prompt", "-y", help="Proceed automatically with batch processing (default: auto-proceed)"),
     model_suffix: bool = typer.Option(False, "--model-suffix", help="Append model name as suffix to output filenames"),
+    combine: bool = typer.Option(True, "--combine/--no-combine", help="Stitch sequential folder recordings into one continuous transcript"),
 ):
     """Transcribe an audio file, YouTube URL, or Google Drive folder with stream output."""
     if is_youtube_url(audio_source):
@@ -280,6 +365,7 @@ def transcribe_cmd(
             force=force,
             yes=yes,
             model_suffix=model_suffix,
+            combine=combine,
         )
         return
 
@@ -302,7 +388,7 @@ def transcribe_cmd(
     )
 
     console.print("[bold green]Transcribing speech stream:[/bold green]")
-    exported = _run_single_file(
+    exported, _ = _run_single_file(
         pipeline=pipeline,
         audio_source=audio_source,
         display_name=display_name,

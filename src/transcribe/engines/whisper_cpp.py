@@ -78,7 +78,7 @@ class WhisperCppTranscriber(BaseTranscriber):
         """Transcribe audio file using whisper.cpp GGML runtime."""
         self._load_model()
 
-        params: Dict[str, Any] = {}
+        params: Dict[str, Any] = {"translate": False}
         if language and language != "auto":
             params["language"] = language
 

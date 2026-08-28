@@ -3,6 +3,7 @@
 import difflib
 import json
 import os
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -31,6 +32,8 @@ class HistoryItem(BaseModel):
     last_processed_time: float = 0.0
     processing_time: float = 0.0
     audio_path: Optional[str] = None
+    mom_markdown: Optional[str] = None
+    refined_text: Optional[str] = None
     result_json: str
 
 
@@ -56,6 +59,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
                 last_processed_time REAL DEFAULT 0.0,
                 processing_time REAL DEFAULT 0.0,
                 audio_path TEXT,
+                mom_markdown TEXT,
+                refined_text TEXT,
                 result_json TEXT
             )
         """)
@@ -72,6 +77,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
             ("last_processed_time", "REAL", "0.0"),
             ("processing_time", "REAL", "0.0"),
             ("audio_path", "TEXT", "NULL"),
+            ("mom_markdown", "TEXT", "NULL"),
+            ("refined_text", "TEXT", "NULL"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE transcriptions ADD COLUMN {col} {col_type} DEFAULT {dflt}")
@@ -249,7 +256,10 @@ def update_history_item(job_id: str, result_data: Dict[str, Any]) -> bool:
     """Update existing transcription result, snippet, and speakers."""
     segments = result_data.get("segments", [])
     snippet = " ".join(s.get("text", "") for s in segments[:3]).strip()[:180]
-    speakers_count = len(result_data.get("speakers", []))
+    distinct_speakers = list(dict.fromkeys(s.get("speaker") for s in segments if s.get("speaker")))
+    if not result_data.get("speakers"):
+        result_data["speakers"] = distinct_speakers
+    speakers_count = len(distinct_speakers) if distinct_speakers else len(result_data.get("speakers", []))
     result_json = json.dumps(result_data, ensure_ascii=False)
 
     with _get_db() as conn:
@@ -264,21 +274,42 @@ def update_history_item(job_id: str, result_data: Dict[str, Any]) -> bool:
         return cursor.rowcount > 0
 
 
+def is_sub_part_recording(name: str, parent_sources: set[str]) -> bool:
+    """Check if name is a sub-recording fragment when a parent batch exists."""
+    is_part_pattern = bool(re.search(r'(?: - | / |_| )?(?:Recording|Part|Track)\s*\d+', name, re.IGNORECASE))
+    if not is_part_pattern:
+        return False
+    for p in parent_sources:
+        if p == name:
+            continue
+        p_tokens = set(re.findall(r'[a-zA-Z0-9]+', p.lower())) - {'meeting', 'session', 'wib'}
+        c_tokens = set(re.findall(r'[a-zA-Z0-9]+', name.lower()))
+        if len(p_tokens.intersection(c_tokens)) >= 3:
+            return True
+    return False
+
+
 def list_history(limit: int = 100) -> List[Dict[str, Any]]:
-    """List recent transcriptions across all models."""
+    """List recent transcriptions across all models, omitting child parts if parent exists."""
     with _get_db() as conn:
         rows = conn.execute(
             """
             SELECT id, source_name, model, language, duration, speakers_count, created_at, snippet, status, last_processed_time, processing_time, audio_path
-            FROM transcriptions ORDER BY created_at DESC LIMIT ?
-            """,
-            (limit,),
+            FROM transcriptions ORDER BY created_at DESC
+            """
         ).fetchall()
-        return [dict(row) for row in rows]
+        items = [dict(row) for row in rows]
+
+    all_sources = {item["source_name"] for item in items}
+    filtered = [
+        item for item in items
+        if not is_sub_part_recording(item["source_name"], all_sources)
+    ]
+    return filtered[:limit]
 
 
 def list_sources() -> List[Dict[str, Any]]:
-    """List distinct audio sources grouped with their model runs for comparison."""
+    """List distinct audio sources grouped with their model runs for comparison, filtering child fragments."""
     with _get_db() as conn:
         rows = conn.execute(
             """
@@ -305,7 +336,12 @@ def list_sources() -> List[Dict[str, Any]]:
         if item["model"] not in grouped[src]["models"]:
             grouped[src]["models"].append(item["model"])
 
-    return list(grouped.values())
+    all_sources = set(grouped.keys())
+    filtered = [
+        src_obj for src, src_obj in grouped.items()
+        if not is_sub_part_recording(src, all_sources)
+    ]
+    return filtered
 
 
 def get_history_item(job_id: str) -> Optional[Dict[str, Any]]:
@@ -317,6 +353,34 @@ def get_history_item(job_id: str) -> Optional[Dict[str, Any]]:
         res = dict(row)
         res["result"] = json.loads(res["result_json"])
         return res
+
+
+def save_history_mom(job_id: str, mom_text: str) -> bool:
+    """Save generated Minutes of Meeting markdown for a history entry."""
+    with _get_db() as conn:
+        cursor = conn.execute("UPDATE transcriptions SET mom_markdown = ? WHERE id = ?", (mom_text, job_id))
+        return cursor.rowcount > 0
+
+
+def get_history_mom(job_id: str) -> Optional[str]:
+    """Retrieve generated Minutes of Meeting markdown for a history entry."""
+    with _get_db() as conn:
+        row = conn.execute("SELECT mom_markdown FROM transcriptions WHERE id = ?", (job_id,)).fetchone()
+        return row[0] if row and row[0] else None
+
+
+def save_history_refined(job_id: str, refined_text: str) -> bool:
+    """Save polished/refined transcript text for a history entry."""
+    with _get_db() as conn:
+        cursor = conn.execute("UPDATE transcriptions SET refined_text = ? WHERE id = ?", (refined_text, job_id))
+        return cursor.rowcount > 0
+
+
+def get_history_refined(job_id: str) -> Optional[str]:
+    """Retrieve polished/refined transcript text for a history entry."""
+    with _get_db() as conn:
+        row = conn.execute("SELECT refined_text FROM transcriptions WHERE id = ?", (job_id,)).fetchone()
+        return row[0] if row and row[0] else None
 
 
 def delete_history_item(job_id: str) -> bool:

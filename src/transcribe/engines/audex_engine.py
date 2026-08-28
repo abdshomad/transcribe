@@ -99,9 +99,9 @@ class AudexTranscriber(BaseTranscriber):
         duration = self._get_audio_duration(audio_path)
 
         prompt = (
-            "<|audio|> Please transcribe the speech in the audio verbatim."
+            "<|audio|> Please transcribe the speech in the audio verbatim in its original spoken language without translating."
             if not self.thinking_mode
-            else "<|audio|> Please analyze and transcribe the speech in the audio step-by-step."
+            else "<|audio|> Please analyze and transcribe the speech in the audio step-by-step in its original spoken language without translating."
         )
 
         inputs = self._processor(text=prompt, audios=[audio_path], return_tensors="pt")

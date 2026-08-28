@@ -147,6 +147,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 <option value="speaker_only">With Speaker Only</option>
                 <option value="text_only">Only Text</option>
               </select>
+              <!-- MOM Button (Hidden pending refined implementation) -->
+              <button id="btn-mom" onclick="openMomModal()" class="hidden px-2 py-1 bg-amber-600 hover:bg-amber-500 text-xs text-white rounded-lg font-bold items-center gap-1 shadow-sm transition-all" title="Generate Minutes of Meeting">📝 MOM</button>
+              <button onclick="openRefineModal()" class="px-2 py-1 bg-teal-600 hover:bg-teal-500 text-xs text-white rounded-lg font-bold flex items-center gap-1 shadow-sm transition-all" title="Refine and polish transcript grammar, punctuation & disfluencies">✨ Refine</button>
               <button onclick="copyMarkdown()" class="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-xs text-white rounded-lg font-medium flex items-center gap-1 shadow-sm">📋 Copy</button>
               <button onclick="downloadFormat('md')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs rounded-lg text-slate-700 dark:text-slate-300 font-medium">⬇️ MD</button>
               <button onclick="downloadFormat('txt')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs rounded-lg text-slate-700 dark:text-slate-300">TXT</button>
@@ -356,6 +359,68 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <!-- Segment-by-segment Timeline View (Toggleable) -->
       <div class="flex-1 overflow-y-auto p-6 hidden space-y-3" id="compare-timeline-view">
         <div id="timeline-comparative-container" class="space-y-4 text-xs"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MOM MODAL -->
+  <div id="mom-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-lg">📝</div>
+          <div>
+            <h3 class="font-bold text-base text-slate-800 dark:text-slate-100 flex items-center gap-2">
+              <span>Minutes of Meeting (MOM)</span>
+              <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold border border-amber-500/30">FreeToken Qwen 3.8*</span>
+            </h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Synthesized Executive Summary, Agenda Points, Decisions, & Action Items</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="copyMomMarkdown()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-sm flex items-center gap-1.5 transition-all">📋 Copy Markdown</button>
+          <button onclick="downloadMomMarkdown()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold shadow-sm flex items-center gap-1.5 transition-all">💾 Download .mom.md</button>
+          <button id="btn-close-mom" onclick="closeMomModal()" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 text-lg p-1">✕</button>
+        </div>
+      </div>
+      <div class="p-6 flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50 space-y-3">
+        <div id="mom-status" class="hidden p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-700 dark:text-amber-300 font-medium flex items-center gap-2 animate-pulse">
+          <span>🧠 Analyzing dialogue with FreeToken Qwen 3.8* engine...</span>
+        </div>
+        <div id="mom-content" class="prose dark:prose-invert max-w-none text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-sans leading-relaxed bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm min-h-[300px]">
+          Click "Generate MOM" to synthesize meeting minutes.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- REFINE MODAL -->
+  <div id="refine-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-teal-500/10 via-emerald-500/10 to-teal-500/10">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-teal-500/20 border border-teal-500/30 flex items-center justify-center text-lg">✨</div>
+          <div>
+            <h3 class="font-bold text-base text-slate-800 dark:text-slate-100 flex items-center gap-2">
+              <span>AI Transcript Refiner & Polisher</span>
+              <span class="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-700 dark:text-teal-300 font-bold border border-teal-500/30">FreeToken Qwen 3.8*</span>
+            </h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Polished grammar, punctuation, sentence boundaries, and disfluency cleanup</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="copyRefinedText()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-sm flex items-center gap-1.5 transition-all">📋 Copy Refined</button>
+          <button onclick="downloadRefinedText()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold shadow-sm flex items-center gap-1.5 transition-all">💾 Download .refined.txt</button>
+          <button id="btn-close-refine" onclick="closeRefineModal()" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 text-lg p-1">✕</button>
+        </div>
+      </div>
+      <div class="p-6 flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50 space-y-3">
+        <div id="refine-status" class="hidden p-3 bg-teal-500/10 border border-teal-500/20 rounded-xl text-xs text-teal-700 dark:text-teal-300 font-medium flex items-center gap-2 animate-pulse">
+          <span>🧠 Polishing transcript with FreeToken Qwen 3.8* engine...</span>
+        </div>
+        <div id="refine-content" class="text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-sans leading-relaxed bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm min-h-[300px]">
+          Click "Refine" to generate polished transcript.
+        </div>
       </div>
     </div>
   </div>
@@ -796,6 +861,21 @@ HTML_PAGE = r"""<!DOCTYPE html>
       return COLORS[Math.max(0, idx)];
     }
 
+    function getSpeakerInitials(speaker) {
+      if (!speaker) return 'S1';
+      const clean = String(speaker).trim();
+      const spkMatch = clean.match(/^SPEAKER_?(\d+)$/i) || clean.match(/^Speaker\s*(\d+)$/i);
+      if (spkMatch) return 'S' + parseInt(spkMatch[1], 10);
+      const words = clean.split(/[\s._-]+/).filter(w => w.length > 0);
+      if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+      if (words.length === 1) {
+        const w = words[0];
+        return w.length >= 2 ? w.substring(0, 2).toUpperCase() : (w[0] + '1').toUpperCase();
+      }
+      return clean.substring(0, 2).toUpperCase() || 'SP';
+    }
+
+    let renameDebounceTimer = null;
     function renderSpeakerRenameBar() {
       const distinct = [...new Set(currentResult.segments.map(s => s.speaker || 'Speaker 1'))];
       currentResult.speakers = distinct;
@@ -804,20 +884,38 @@ HTML_PAGE = r"""<!DOCTYPE html>
       speakerCount.textContent = `${distinct.length} Speaker${distinct.length > 1 ? 's' : ''}`;
       speakerInputs.innerHTML = '';
       distinct.forEach(spk => {
+        let currentAssignedName = spk;
         const style = getSpeakerStyle(spk);
         const wrapper = document.createElement('div');
         wrapper.className = `flex items-center gap-1.5 px-2 py-1 rounded-lg border ${style.bg} ${style.border}`;
-        wrapper.innerHTML = `<span class="text-[11px] font-bold ${style.text}">${spk}</span><span class="text-slate-400 text-xs">➜</span><input type="text" value="${spk}" class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 w-28" />`;
-        wrapper.querySelector('input').oninput = (e) => renameGlobalSpeaker(spk, e.target.value.trim());
+        wrapper.innerHTML = `<span class="avatar-badge inline-flex items-center justify-center min-w-[24px] h-5 px-1 rounded text-[10px] font-extrabold ${style.bg} ${style.text} border ${style.border}" title="${spk}">${getSpeakerInitials(spk)}</span><span class="text-slate-400 text-xs">➜</span><input type="text" value="${spk}" placeholder="Speaker name..." class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 w-28 font-medium" />`;
+        
+        const inputEl = wrapper.querySelector('input');
+        const badgeEl = wrapper.querySelector('.avatar-badge');
+        inputEl.oninput = (e) => {
+          const newName = e.target.value.trim();
+          if (!newName || newName === currentAssignedName) return;
+          badgeEl.textContent = getSpeakerInitials(newName);
+          badgeEl.title = newName;
+          currentResult.segments.forEach(s => {
+            if (s.speaker === currentAssignedName) s.speaker = newName;
+          });
+          currentAssignedName = newName;
+          currentResult.speakers = [...new Set(currentResult.segments.map(s => s.speaker || 'Speaker 1'))];
+          updateVirtualWindow();
+          if (currentJobId) {
+            if (renameDebounceTimer) clearTimeout(renameDebounceTimer);
+            renameDebounceTimer = setTimeout(() => {
+              fetch(`/api/history/${currentJobId}`, {
+                method: 'PATCH',
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify(currentResult),
+              }).catch(()=>{});
+            }, 300);
+          }
+        };
         speakerInputs.appendChild(wrapper);
       });
-    }
-
-    function renameGlobalSpeaker(oldName, newName) {
-      if (!newName || oldName === newName) return;
-      currentResult.segments.forEach(s => { if (s.speaker === oldName) s.speaker = newName; });
-      updateVirtualWindow();
-      if (currentJobId) fetch(`/api/history/${currentJobId}`, { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(currentResult) }).catch(()=>{});
     }
 
     viewport.onscroll = () => updateVirtualWindow();
@@ -835,14 +933,16 @@ HTML_PAGE = r"""<!DOCTYPE html>
       segmentsContainer.innerHTML = '';
       for (let i = startIdx; i < endIdx; i++) {
         const seg = segs[i];
+        const spkName = seg.speaker || 'Speaker 1';
+        const spkInitials = getSpeakerInitials(spkName);
         const isLatest = (i === segs.length - 1);
         const div = document.createElement('div');
-        const style = getSpeakerStyle(seg.speaker || 'Speaker 1');
+        const style = getSpeakerStyle(spkName);
         div.className = `group relative p-3 rounded-xl border transition-all ${isLatest ? 'bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-500/60 shadow-sm shadow-indigo-500/10 ring-1 ring-indigo-500/30' : 'bg-slate-50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800/80 hover:border-indigo-400 dark:hover:border-slate-700'}`;
         const latestBadge = isLatest ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 animate-pulse">● Latest</span>` : '';
         const emotionBadge = (seg.emotion && seg.emotion !== 'NEUTRAL') ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">🎭 ${seg.emotion}</span>` : '';
         const eventBadges = (seg.events && seg.events.length) ? seg.events.map(e => `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">🔔 ${e}</span>`).join('') : '';
-        div.innerHTML = `<div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1"><div class="flex items-center gap-2"><span class="inline-flex items-center px-2 py-0.5 rounded-md font-semibold ${style.bg} ${style.text} border ${style.border}">${seg.speaker || 'Speaker 1'}</span>${emotionBadge}${eventBadges}${latestBadge}</div><div class="flex items-center gap-2"><span class="font-mono text-slate-400 dark:text-slate-500">${formatTime(seg.start)} → ${formatTime(seg.end)}</span><button onclick="deleteSegment(${i})" class="opacity-0 group-hover:opacity-100 text-rose-400 hover:text-rose-600 p-0.5 rounded transition-opacity" title="Delete segment">✕</button></div></div><div class="text-slate-800 dark:text-slate-200 leading-relaxed">${seg.text}</div>`;
+        div.innerHTML = `<div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1"><div class="flex items-center gap-2"><span class="inline-flex items-center justify-center min-w-[26px] h-6 px-1.5 rounded-md font-bold text-[11px] ${style.bg} ${style.text} border ${style.border} shadow-xs cursor-default tracking-wide" title="${spkName}">${spkInitials}</span>${emotionBadge}${eventBadges}${latestBadge}</div><div class="flex items-center gap-2"><span class="font-mono text-slate-400 dark:text-slate-500">${formatTime(seg.start)} → ${formatTime(seg.end)}</span><button onclick="deleteSegment(${i})" class="opacity-0 group-hover:opacity-100 text-rose-400 hover:text-rose-600 p-0.5 rounded transition-opacity" title="Delete segment">✕</button></div></div><div class="text-slate-800 dark:text-slate-200 leading-relaxed">${seg.text}</div>`;
         segmentsContainer.appendChild(div);
       }
     }
@@ -1384,6 +1484,212 @@ HTML_PAGE = r"""<!DOCTYPE html>
     }
     function formatSrtTime(s) { const hrs = Math.floor(s / 3600).toString().padStart(2, '0'), mins = Math.floor((s % 3600) / 60).toString().padStart(2, '0'), secs = Math.floor(s % 60).toString().padStart(2, '0'), ms = Math.floor((s - Math.floor(s)) * 1000).toString().padStart(3, '0'); return `${hrs}:${mins}:${secs},${ms}`; }
     function formatVttTime(s) { return formatSrtTime(s).replace(',', '.'); }
+
+    let currentMomMarkdown = '';
+
+    async function openMomModal() {
+      const modal = document.getElementById('mom-modal');
+      const content = document.getElementById('mom-content');
+      modal.classList.remove('hidden');
+
+      if (!currentResult || !currentResult.segments || !currentResult.segments.length) {
+        content.innerText = 'No transcription segments available to generate MOM.';
+        return;
+      }
+
+      if (currentJobId) {
+        try {
+          const res = await fetch(`/api/history/${currentJobId}/mom?token=${encodeURIComponent(appToken)}`, { headers: authHeaders() });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.mom_markdown) {
+              currentMomMarkdown = data.mom_markdown;
+              content.innerText = currentMomMarkdown;
+              return;
+            }
+          }
+        } catch (e) {}
+      }
+
+      await generateMomStream();
+    }
+
+    function closeMomModal() {
+      document.getElementById('mom-modal').classList.add('hidden');
+    }
+
+    async function generateMomStream() {
+      const content = document.getElementById('mom-content');
+      const status = document.getElementById('mom-status');
+      status.classList.remove('hidden');
+      content.innerText = '';
+      currentMomMarkdown = '';
+
+      try {
+        const response = await fetch(`/api/mom?token=${encodeURIComponent(appToken)}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            job_id: currentJobId,
+            segments: currentResult.segments,
+            stream: true,
+          })
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({ detail: response.statusText }));
+          throw new Error(err.detail || 'Failed to generate MOM');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const dataStr = line.slice(6).trim();
+            if (dataStr === '[DONE]') break;
+            try {
+              const parsed = JSON.parse(dataStr);
+              if (parsed.chunk) {
+                currentMomMarkdown += parsed.chunk;
+                content.innerText = currentMomMarkdown;
+                content.scrollTop = content.scrollHeight;
+              }
+            } catch (e) {}
+          }
+        }
+      } catch (err) {
+        content.innerText = `⚠️ Error generating MOM: ${err.message}\n\nPlease verify that FreeToken server is running on http://127.0.0.1:4012 (or configure LLM_BASE_URL in .env).`;
+      } finally {
+        status.classList.add('hidden');
+      }
+    }
+
+    function copyMomMarkdown() {
+      if (!currentMomMarkdown) return;
+      navigator.clipboard.writeText(currentMomMarkdown).then(() => showToast('MOM Markdown copied to clipboard!'));
+    }
+
+    function downloadMomMarkdown() {
+      if (!currentMomMarkdown) return;
+      const stem = getAudioStem();
+      const filename = `${stem}.mom.md`;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([currentMomMarkdown], { type: 'text/markdown' }));
+      a.download = filename;
+      a.click();
+    }
+
+    let currentRefinedText = '';
+
+    async function openRefineModal() {
+      const modal = document.getElementById('refine-modal');
+      const content = document.getElementById('refine-content');
+      modal.classList.remove('hidden');
+
+      if (!currentResult || !currentResult.segments || !currentResult.segments.length) {
+        content.innerText = 'No transcription segments available to refine.';
+        return;
+      }
+
+      if (currentJobId) {
+        try {
+          const res = await fetch(`/api/history/${currentJobId}/refined?token=${encodeURIComponent(appToken)}`, { headers: authHeaders() });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.refined_text) {
+              currentRefinedText = data.refined_text;
+              content.innerText = currentRefinedText;
+              return;
+            }
+          }
+        } catch (e) {}
+      }
+
+      await refineTranscriptStream();
+    }
+
+    function closeRefineModal() {
+      document.getElementById('refine-modal').classList.add('hidden');
+    }
+
+    async function refineTranscriptStream() {
+      const content = document.getElementById('refine-content');
+      const status = document.getElementById('refine-status');
+      status.classList.remove('hidden');
+      content.innerText = '';
+      currentRefinedText = '';
+
+      try {
+        const response = await fetch(`/api/refine?token=${encodeURIComponent(appToken)}`, {
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            job_id: currentJobId,
+            segments: currentResult.segments,
+            stream: true,
+          })
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({ detail: response.statusText }));
+          throw new Error(err.detail || 'Failed to refine transcript');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const dataStr = line.slice(6).trim();
+            if (dataStr === '[DONE]') break;
+            try {
+              const parsed = JSON.parse(dataStr);
+              if (parsed.chunk) {
+                currentRefinedText += parsed.chunk;
+                content.innerText = currentRefinedText;
+                content.scrollTop = content.scrollHeight;
+              }
+            } catch (e) {}
+          }
+        }
+      } catch (err) {
+        content.innerText = `⚠️ Error refining transcript: ${err.message}\n\nPlease verify that FreeToken server is running on http://127.0.0.1:4012 (or configure LLM_BASE_URL in .env).`;
+      } finally {
+        status.classList.add('hidden');
+      }
+    }
+
+    function copyRefinedText() {
+      if (!currentRefinedText) return;
+      navigator.clipboard.writeText(currentRefinedText).then(() => showToast('Refined transcript copied to clipboard!'));
+    }
+
+    function downloadRefinedText() {
+      if (!currentRefinedText) return;
+      const stem = getAudioStem();
+      const filename = `${stem}.refined.txt`;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([currentRefinedText], { type: 'text/plain' }));
+      a.download = filename;
+      a.click();
+    }
   </script>
 </body>
 </html>

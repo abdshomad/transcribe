@@ -27,7 +27,11 @@ from .models import (
 )
 from .pipeline import AudioTranscriptionPipeline
 from .youtube import is_youtube_url, fetch_youtube_transcript
-from .downloader import is_gdrive_folder, fetch_gdrive_folder_contents
+from .downloader import is_url, is_gdrive_folder, fetch_gdrive_folder_contents
+from .merger import (
+    sort_media_files_by_sequence,
+    combine_transcription_results,
+)
 from .history import (
     is_valid_token,
     save_history,
@@ -39,8 +43,13 @@ from .history import (
     compare_runs,
     get_history_item,
     delete_history_item,
-    clear_all_history,
+    save_history_mom,
+    get_history_mom,
+    save_history_refined,
+    get_history_refined,
 )
+from .mom import generate_mom_sync, generate_mom_stream
+from .refiner import refine_transcript_sync, refine_transcript_stream
 from .web import HTML_PAGE
 
 load_dotenv(".secrets")
@@ -174,6 +183,129 @@ def delete_history_entry(job_id: str):
     return {"status": "deleted", "id": job_id}
 
 
+@app.get("/api/history/{job_id}/mom", dependencies=[Depends(verify_token)])
+def get_mom_entry(job_id: str):
+    """Retrieve saved Minutes of Meeting (MOM) markdown."""
+    mom_text = get_history_mom(job_id)
+    if not mom_text:
+        raise HTTPException(status_code=404, detail="MOM not generated for this job")
+    return {"job_id": job_id, "mom_markdown": mom_text}
+
+
+def _resolve_mom_segments(payload: Dict[str, Any]) -> List[Any]:
+    """Extract or lookup transcript segments for MOM request."""
+    segments = payload.get("segments")
+    job_id = payload.get("job_id")
+    if not segments and job_id:
+        item = get_history_item(job_id)
+        if item:
+            segments = item.get("result", {}).get("segments", [])
+    return segments or []
+
+
+def _stream_mom_response(
+    segments: List[Any],
+    model: Optional[str],
+    temperature: float,
+    job_id: Optional[str],
+) -> StreamingResponse:
+    """Stream generated MOM chunks via Server-Sent Events."""
+    async def _stream_wrapper():
+        full_mom: List[str] = []
+        async for chunk in generate_mom_stream(segments, model=model, temperature=temperature):
+            full_mom.append(chunk)
+            yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+        if job_id and full_mom:
+            save_history_mom(job_id, "".join(full_mom))
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        _stream_wrapper(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+@app.post("/api/mom", dependencies=[Depends(verify_token)])
+async def generate_mom_endpoint(payload: Dict[str, Any] = Body(...)):
+    """Generate Minutes of Meeting (MOM) via FreeToken / Qwen LLM."""
+    segments = _resolve_mom_segments(payload)
+    if not segments:
+        raise HTTPException(status_code=400, detail="No transcript segments provided or found for job_id")
+
+    job_id = payload.get("job_id")
+    model = payload.get("model")
+    stream = bool(payload.get("stream", False))
+    temperature = float(payload.get("temperature", 0.2))
+
+    if stream:
+        return _stream_mom_response(segments, model, temperature, job_id)
+
+    try:
+        mom_text = generate_mom_sync(segments, model=model, temperature=temperature)
+        if job_id:
+            save_history_mom(job_id, mom_text)
+        return {"status": "success", "job_id": job_id, "mom_markdown": mom_text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate MOM: {e}")
+
+
+@app.get("/api/history/{job_id}/refined", dependencies=[Depends(verify_token)])
+def get_refined_entry(job_id: str):
+    """Retrieve polished/refined transcript text."""
+    refined = get_history_refined(job_id)
+    if not refined:
+        raise HTTPException(status_code=404, detail="Refined transcript not available for this job")
+    return {"job_id": job_id, "refined_text": refined}
+
+
+def _stream_refine_response(
+    segments: List[Any],
+    model: Optional[str],
+    temperature: float,
+    job_id: Optional[str],
+) -> StreamingResponse:
+    """Stream refined transcript text chunks via Server-Sent Events."""
+    async def _stream_wrapper():
+        full_text: List[str] = []
+        async for chunk in refine_transcript_stream(segments, model=model, temperature=temperature):
+            full_text.append(chunk)
+            yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+        if job_id and full_text:
+            save_history_refined(job_id, "".join(full_text))
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        _stream_wrapper(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+@app.post("/api/refine", dependencies=[Depends(verify_token)])
+async def refine_transcript_endpoint(payload: Dict[str, Any] = Body(...)):
+    """Refine and polish transcript via FreeToken / Qwen LLM."""
+    segments = _resolve_mom_segments(payload)
+    if not segments:
+        raise HTTPException(status_code=400, detail="No transcript segments provided or found for job_id")
+
+    job_id = payload.get("job_id")
+    model = payload.get("model")
+    stream = bool(payload.get("stream", False))
+    temperature = float(payload.get("temperature", 0.1))
+
+    if stream:
+        return _stream_refine_response(segments, model, temperature, job_id)
+
+    try:
+        refined_text = refine_transcript_sync(segments, model=model, temperature=temperature)
+        if job_id:
+            save_history_refined(job_id, refined_text)
+        return {"status": "success", "job_id": job_id, "refined_text": refined_text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refine transcript: {e}")
+
+
 def _resolve_resume_context(
     resume_job_id: str,
     default_model: str,
@@ -192,6 +324,22 @@ def _resolve_resume_context(
     return start_offset, effective_name, source_target, model, existing_segs
 
 
+def _find_prior_job_path(s_clean: str) -> Optional[str]:
+    """Look up audio_path from history database by various name variations."""
+    candidates = [
+        s_clean,
+        s_clean.replace(" (Combined)", "").strip() if " (Combined)" in s_clean else None,
+        s_clean.split(" / ")[0].strip() if " / " in s_clean else None,
+    ]
+    for name in filter(None, candidates):
+        job = find_job_by_source(name)
+        if job and job.get("audio_path"):
+            p = job["audio_path"]
+            if is_url(p) or os.path.exists(p):
+                return p
+    return None
+
+
 def _resolve_source_name_path(s_clean: str, upload_dir: Path) -> Optional[str]:
     """Find file on disk or in previous history jobs given a source name."""
     s_name = Path(s_clean).name
@@ -205,9 +353,9 @@ def _resolve_source_name_path(s_clean: str, upload_dir: Path) -> Optional[str]:
         if cp.exists():
             return str(cp)
 
-    prior_job = find_job_by_source(s_clean)
-    if prior_job and prior_job.get("audio_path") and os.path.exists(prior_job["audio_path"]):
-        return prior_job["audio_path"]
+    if prior_path := _find_prior_job_path(s_clean):
+        return prior_path
+
     if is_url(s_clean):
         return s_clean
     return None
@@ -240,33 +388,26 @@ def _handle_youtube_stream(
             start=s.start,
             end=s.end,
             text=s.text,
-            words=s.words
         )
         for s in yt_res["segments"]
     ]
-    trans_result = TranscriptionResult(
-        language=yt_res["language"],
-        language_probability=1.0,
-        duration=yt_res["duration"],
-        segments=diarized_segs,
-        speakers=["SPEAKER_00"]
-    )
-    res_data = trans_result.model_dump()
+    final_res = {
+        "language": yt_res["language"],
+        "language_probability": 1.0,
+        "duration": yt_res["duration"],
+        "segments": [s.model_dump() for s in diarized_segs],
+        "speakers": ["SPEAKER_00"],
+    }
     save_history(
         job_id=job_id,
         source_name=yt_res["title"],
         model="youtube-captions",
-        result_data=res_data,
+        result_data=final_res,
         status="completed",
         processing_time=proc_time,
         audio_path=source_target,
     )
-    for s in diarized_segs:
-        msg_queue.put({
-            "type": "progress",
-            "data": {"stage": "transcribing", "current_time": s.end, "percent": 100.0, "segment": s.model_dump()}
-        })
-    msg_queue.put({"type": "done", "job_id": job_id, "data": res_data, "processing_time": proc_time})
+    msg_queue.put({"type": "done", "job_id": job_id, "data": final_res, "processing_time": proc_time})
     return True
 
 
@@ -302,7 +443,7 @@ def _handle_gdrive_folder_stream(
     t0: float,
     msg_queue: queue.Queue,
 ) -> bool:
-    """Handle Google Drive folder batch transcription stream. Returns True if handled."""
+    """Handle Google Drive folder batch transcription stream with continuous sequence stitching."""
     if not is_gdrive_folder(source_target):
         return False
 
@@ -314,20 +455,21 @@ def _handle_gdrive_folder_stream(
             "message": "🔍 Scanning Google Drive folder for audio recordings...",
         },
     })
-    folder_title, media_files = fetch_gdrive_folder_contents(source_target)
-    if not media_files:
+    folder_title, raw_files = fetch_gdrive_folder_contents(source_target)
+    if not raw_files:
         msg_queue.put({
             "type": "error",
             "error": "No audio or video recordings found in this Google Drive folder.",
         })
         return True
 
+    media_files = sort_media_files_by_sequence(raw_files)
     msg_queue.put({
         "type": "progress",
         "data": {
             "stage": "batch_found",
             "percent": 10.0,
-            "message": f"📁 Found {len(media_files)} recordings in '{folder_title}'. Starting batch processing...",
+            "message": f"📁 Found {len(media_files)} recordings in '{folder_title}'. Starting sequential processing...",
         },
     })
 
@@ -338,7 +480,7 @@ def _handle_gdrive_folder_stream(
         enable_diarization=diarize,
     )
 
-    batch_segments = []
+    results_with_metadata = []
     total_files = len(media_files)
     for idx, f in enumerate(media_files, start=1):
         file_pct_base = 10.0 + ((idx - 1) / total_files) * 80.0
@@ -371,12 +513,12 @@ def _handle_gdrive_folder_stream(
                 vad_filter=vad_filter,
                 on_progress=item_prog,
             )
-            item_data = res.model_dump()
+            results_with_metadata.append((f["name"], res))
             save_history(
                 job_id=f"{job_id}_{idx}",
                 source_name=f"{folder_title} / {f['name']}",
                 model=model,
-                result_data=item_data,
+                result_data=res.model_dump(),
                 status="completed",
                 processing_time=round(time.time() - t0, 2),
                 audio_path=f["url"],
@@ -390,7 +532,6 @@ def _handle_gdrive_folder_stream(
                         "segment": s.model_dump(),
                     },
                 })
-            batch_segments.extend(res.segments)
         except Exception as e:
             msg_queue.put({
                 "type": "progress",
@@ -402,13 +543,18 @@ def _handle_gdrive_folder_stream(
             })
 
     proc_time = round(time.time() - t0, 2)
-    final_res = {
-        "language": language or "auto",
-        "language_probability": 1.0,
-        "duration": sum(s.end - s.start for s in batch_segments),
-        "segments": [s.model_dump() for s in batch_segments],
-        "speakers": sorted(list({s.speaker for s in batch_segments})),
-    }
+    if results_with_metadata:
+        combined_res = combine_transcription_results(results_with_metadata, folder_title)
+        final_res = combined_res.model_dump()
+    else:
+        final_res = {
+            "language": language or "auto",
+            "language_probability": 1.0,
+            "duration": 0.0,
+            "segments": [],
+            "speakers": [],
+        }
+
     save_history(
         job_id=job_id,
         source_name=folder_title,

@@ -126,3 +126,13 @@ def test_find_checkpoint():
 
     delete_history_item(job_cp)
 
+
+def test_is_sub_part_recording_and_source_filtering():
+    from transcribe.history import is_sub_part_recording
+
+    parents = {"Meeting MVP Sistem Akreditasi Rumah Sakit 2026 - 2026-08-28 0807 WIB"}
+    assert is_sub_part_recording("MVP Akreditasi Rumah Sakit 2026 - 2026_08_28 08:07 WIB - Recording 1.m4a", parents) is True
+    assert is_sub_part_recording("MVP Akreditasi Rumah Sakit 2026 - 2026_08_28 08:07 WIB - Recording 2", parents) is True
+    assert is_sub_part_recording("Meeting MVP Sistem Akreditasi Rumah Sakit 2026 - 2026-08-28 0807 WIB", parents) is False
+    assert is_sub_part_recording("proklamasi.wav", parents) is False
+
